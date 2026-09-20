@@ -115,9 +115,9 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   notes:data.notes.trim(),
   changed_files:JSON.stringify(data.files||[]),
   previous_source_commit:previousRelease?.source_sha || "",
-  release_record:JSON.stringify(releaseRecord),
  };
- if(data.type==="engine")Object.assign(inputs,{apex:String(data.components.includes("apex")),mcp:String(data.components.includes("mcp")),studio:String(data.components.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1",previous_source_commit:""});
+ if(data.type==="base") inputs.release_record=JSON.stringify(releaseRecord);
+ if(data.type==="engine")Object.assign(inputs,{apex:String(data.components.includes("apex")),mcp:String(data.components.includes("mcp")),studio:String(data.components.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
  const dispatchedAt=Date.now();
   await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
   let runId:number|undefined;
