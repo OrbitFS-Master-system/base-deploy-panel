@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { getPanelState, inspectSource, startRelease, getReleaseRun, login } from "@/lib/panel.server";
+import { getPanelState, inspectSource, startRelease, getReleaseRun, getReleaseHandoff, login } from "@/lib/panel.server";
 
 export const Route = createFileRoute("/")({ component: Index });
 
@@ -25,7 +25,7 @@ function Index() {
   const [protocol, setProtocol] = useState("1");
   const [run, setRun] = useState<any>(null);
   const [runRepo, setRunRepo] = useState("");
-  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);  const [handoff, setHandoff] = useState<any>(null);
 
   const load = async (s = session) => {
     if (!s) return;
@@ -102,13 +102,13 @@ function Index() {
     return () => { stopped = true; clearInterval(timer); };
   }, [run?.id, runRepo, session?.token]);
 
-  const signOut = () => {
+  useEffect(() => {    if (!run?.id || !runRepo || !session || !version) return;    let stopped = false;    const poll = async () => {      try {        const type = runRepo === "lucaskerim123/V1-vercel-base" ? "base" : "engine";        const r = await getReleaseHandoff({ data: { token: session.token, type, version, channel } });        if (!stopped && r.release) setHandoff(r.release);      } catch {}    };    poll();    const timer = setInterval(poll, 5000);    return () => { stopped = true; clearInterval(timer); };  }, [run?.id, runRepo, session?.token, version, channel]);  const signOut = () => {
     localStorage.removeItem("orbitfs_panel_session");
     localStorage.removeItem("orbitfs_panel_user");
     setSession(null);
     setData({ base: { releases: [] }, engine: { releases: [] } });
     setRun(null);
-    setRunRepo("");
+    setRunRepo("");    setHandoff(null);
   };
 
   const inspect = async (type: "base" | "engine") => {
@@ -211,7 +211,7 @@ function Index() {
           <div className="mx-auto w-full max-w-6xl">
             {error && <Alert tone="error">{error}</Alert>}
             {notice && <Alert tone="success">{notice}</Alert>}
-            {run && <WorkflowConsole run={run} repo={runRepo} />}\n                        {tab === "overview" ? (
+            {run && <WorkflowConsole run={run} repo={runRepo} handoff={handoff} />}\n                        {tab === "overview" ? (
               <Dashboard stats={stats} releases={releases} loading={loading} onBase={() => setTab("base")} onEngine={() => setTab("engine")} />
             ) : (
               <Composer type={tab} reviewOpen={reviewOpen} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
@@ -331,7 +331,7 @@ function ReleaseInfo({ type, version, channel, files, notes, components }: any) 
     <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border bg-background p-4 text-xs leading-6 text-muted-foreground">{generated}</pre>
   </div>;
 }
-function WorkflowConsole({ run, repo }: any) {
+function WorkflowConsole({ run, repo, handoff }: any) {
   const jobs = run.jobs || [];
   const state = run.conclusion || run.status || "queued";
   const tone = state === "success" ? "border-emerald-400/30 bg-emerald-400/10" : state === "failure" || state === "cancelled" ? "border-destructive/40 bg-destructive/10" : "border-primary/30 bg-primary/10";
