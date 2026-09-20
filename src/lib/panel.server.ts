@@ -68,7 +68,7 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
  return {repo,ref,head,files:(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes})),commits:cmp?.commits||[]};
 });
 
-export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{
+export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string}})=>{  readSession(data.token);  const product=data.type==="base"?"orbitfs_base":"orbitfs_engine";  const releaseType=data.type==="base"?"base":"update";  const result=await licenseMaster(`/v1/releases?product=${product}&channel=${encodeURIComponent(data.channel||"stable")}&type=${releaseType}&include_archived=true`);  const release=(result?.releases||[]).find((r:any)=>String(r.version)===String(data.version));  return {release:release||null};});export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{
   readSession(data.token);
   const repo=String(data.repo||"").trim();
   if(!repo.includes("/"))throw new Error("Invalid release repository");
