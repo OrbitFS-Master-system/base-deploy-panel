@@ -6,8 +6,8 @@ Turn the static GitHub page into a responsive owner-only control panel that disp
 ## Build
 - Recreate the supplied dark operations interface at `/`, refined for desktop and mobile.
 - Add secure owner sign-in without a separate profile record.
-- Connect Base Deployment to `release-to-license-master.yml` with version, channel, notes, validation, and confirmation.
-- Connect Release Update to `publish-engine-release.yml` with version, channel, APEX/MCP/Studio selection, minimum protocol, minimum Base version, notes, changed files, validation, and confirmation.
+- Build and send the complete Base release payload to `release-to-license-master.yml`, activating the workflow with version, channel, notes, validation, and confirmation.
+- Build and send the complete Engine release payload to `publish-engine-release.yml`, activating the workflow with version, channel, APEX/MCP/Studio selection, minimum protocol, minimum Base version, notes, changed files, validation, and confirmation.
 - Draft release notes from recent repository commits and changed files.
 - Show combined Base and Engine workflow activity with automatic refresh, manual refresh, clear statuses, run details, GitHub log links, and retry actions.
 - Include concise release-stage and connection/authority reference sections from the original panel.
