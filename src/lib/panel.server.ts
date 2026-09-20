@@ -86,7 +86,37 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
  if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one Engine component.");
  const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF,workflow=data.type==="base"?BASE_WORKFLOW:ENGINE_WORKFLOW;
- const inputs:any={version,channel:data.channel,notes:data.notes.trim(),changed_files:JSON.stringify(data.files||[])};
+ const previousResult = data.type === "base"
+  ? await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(data.channel || "stable")}&type=base&include_archived=false`)
+  : await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(data.channel || "stable")}&type=update&include_archived=false`);
+ const previousRelease = (previousResult?.releases || [])
+  .filter((r:any) => r.review_status === "approved" && r.source_sha)
+  .sort((a:any,b:any) => new Date(b.published_at || b.created_at || 0).getTime() - new Date(a.published_at || a.created_at || 0).getTime())[0];
+ const releaseRecord = {
+  format: "orbitfs-release-record-v1",
+  releaseType: data.type === "base" ? "base" : "update",
+  product: "orbitfs_base",
+  version,
+  channel: data.channel || "stable",
+  sourceRepository: repo,
+  sourceRef: ref,
+  previousSourceCommit: previousRelease?.source_sha || null,
+  detectedSourceChanges: (data.files || []).length,
+  changedFiles: data.files || [],
+  components: data.type === "base" ? ["base"] : data.components,
+  minimumBaseVersion: data.type === "engine" ? (data.minimumBaseVersion || "1.0.0") : null,
+  minimumDeployerProtocol: data.type === "engine" ? (data.protocol || "1") : null,
+  notes: data.notes.trim(),
+  generatedAt: new Date().toISOString(),
+ };
+ const inputs:any={
+  version,
+  channel:data.channel,
+  notes:data.notes.trim(),
+  changed_files:JSON.stringify(data.files||[]),
+  previous_source_commit:previousRelease?.source_sha || "",
+  release_record:JSON.stringify(releaseRecord),
+ };
  if(data.type==="engine")Object.assign(inputs,{apex:String(data.components.includes("apex")),mcp:String(data.components.includes("mcp")),studio:String(data.components.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1",previous_source_commit:""});
  const dispatchedAt=Date.now();
   await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
