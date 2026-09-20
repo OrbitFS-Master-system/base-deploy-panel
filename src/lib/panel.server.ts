@@ -68,7 +68,7 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
  return {repo,ref,head,files:(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes})),commits:cmp?.commits||[]};
 });
 
-export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string;notes:string;files:any[];components:string[];minimumBaseVersion:string;protocol:string}})=>{
+export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{\n  readSession(data.token);\n  const repo=String(data.repo||"").trim();\n  if(!repo.includes("/"))throw new Error("Invalid release repository");\n  if(data.runId){\n    const run=await github("/repos/"+repo+"/actions/runs/"+data.runId);\n    const jobs=await github("/repos/"+repo+"/actions/runs/"+data.runId+"/jobs?per_page=100");\n    return {run,jobs:jobs?.jobs||[]};\n  }\n  throw new Error("Release workflow run is not available yet");\n});\n\nexport const startRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string;notes:string;files:any[];components:string[];minimumBaseVersion:string;protocol:string}})=>{
  readSession(data.token);
  const version=data.version.trim();
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
@@ -76,8 +76,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF,workflow=data.type==="base"?BASE_WORKFLOW:ENGINE_WORKFLOW;
  const inputs:any={version,channel:data.channel,notes:data.notes.trim(),changed_files:JSON.stringify(data.files||[])};
  if(data.type==="engine")Object.assign(inputs,{apex:String(data.components.includes("apex")),mcp:String(data.components.includes("mcp")),studio:String(data.components.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1",previous_source_commit:""});
- await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
- return {ok:true,repo,ref,workflow};
+ const dispatchedAt=Date.now();\n  await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});\n  let runId:number|undefined;\n  for(let attempt=0;attempt<5&&!runId;attempt++){\n    await new Promise(r=>setTimeout(r,700));\n    try{\n      const runs=await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(ref)}&per_page=10`);\n      const candidates=(runs?.workflow_runs||[]).filter((r:any)=>r.head_branch===ref&&new Date(r.created_at||0).getTime()>=dispatchedAt-5000);\n      runId=candidates.sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime())[0]?.id;\n    }catch{}\n  }\n  return {ok:true,repo,ref,workflow,runId:runId||null};
 });
 
 async function requestJson(url:string,init:RequestInit={}){
