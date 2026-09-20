@@ -25,6 +25,7 @@ function Index() {
   const [protocol, setProtocol] = useState("1");
   const [run, setRun] = useState<any>(null);
   const [runRepo, setRunRepo] = useState("");
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const load = async (s = session) => {
     if (!s) return;
@@ -118,6 +119,7 @@ function Index() {
       const current = data[type].releases?.find((r: any) => r.review_status === "approved" && r.source_sha)?.source_sha;
       const r = await inspectSource({ data: { token: session.token, type, from: current } });
       setFiles(r.files || []);
+      setReviewOpen(true);
       setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)}. ${r.files.length} changed files detected.`);
     } catch (x: any) {
       setError(x.message || "Unable to inspect source.");
@@ -134,6 +136,7 @@ function Index() {
       const r = await startRelease({
         data: { token: session.token, type, version, channel, notes, files, components, minimumBaseVersion: minBase, protocol },
       });
+      setReviewOpen(false);
       setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
       setRunRepo(r.repo);
       setNotice(r.runId ? `Workflow started and monitoring run #${r.runId}.` : "Workflow started. Waiting for GitHub run details…");
@@ -211,7 +214,7 @@ function Index() {
             {run && <WorkflowConsole run={run} repo={runRepo} />}\n                        {tab === "overview" ? (
               <Dashboard stats={stats} releases={releases} loading={loading} onBase={() => setTab("base")} onEngine={() => setTab("engine")} />
             ) : (
-              <Composer type={tab} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
+              <Composer type={tab} reviewOpen={reviewOpen} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
             )}
           </div>
         </main>
@@ -278,6 +281,8 @@ function Composer(p: any) {
       <span className="w-fit rounded-full border bg-card px-3 py-1.5 text-xs text-muted-foreground">{base ? "orbitfs_base · base-release" : "UPDATE_RELEASE"}</span>
     </div>
 
+    <ReleaseInfo type={p.type} version={p.version} channel={p.channel} files={p.files} notes={p.notes} components={p.components} />
+
     <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-6">
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)} /></Field>
@@ -299,13 +304,14 @@ function Composer(p: any) {
         <Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e => p.setProtocol(e.target.value)} /></Field>
       </div>}
 
-      <div className="mt-5 border-t pt-5"><Field label="Release notes"><textarea className="control min-h-32 resize-y" value={p.notes} onChange={e => p.setNotes(e.target.value)} placeholder="Optional details for the generated changelog." /></Field></div>
+      <div className="mt-5 border-t pt-5"><Field label={base ? "Deployment notes" : "Developer notes"}><textarea className="control min-h-32 resize-y" value={p.notes} onChange={e => p.setNotes(e.target.value)} placeholder={base ? "Optional deployment context or operator notes." : "Optional notes. The changelog is generated automatically from these notes and source inspection."} /></Field></div>
 
       <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
         <button type="button" className="rounded-xl border bg-background px-4 py-2.5 text-sm font-medium hover:bg-accent" disabled={p.busy === "inspect"} onClick={p.onInspect}>{p.busy === "inspect" ? "Inspecting source…" : "Detect source changes"}</button>
-        <button type="button" className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/10" disabled={!can || p.busy === "start"} onClick={p.onStart}>{p.busy === "start" ? "Starting workflow…" : "Start release workflow"}</button>
+        <button type="button" className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/10" disabled={!can || p.busy === "start" || (!base && !p.reviewOpen)} onClick={p.onStart}>{p.busy === "start" ? "Starting workflow…" : base ? "Start Base deployment" : p.reviewOpen ? "Send reviewed update" : "Review generated changelog"}</button>
       </div>
       {!can && <p className="mt-2 text-right text-xs text-muted-foreground">{base ? "Enter a version to continue." : "Enter a version and select at least one component."}</p>}
+      {!base && can && !p.reviewOpen && <p className="mt-2 text-right text-xs text-muted-foreground">Detect changes first, then review the generated changelog before sending the update.</p>}
     </div>
 
     {p.files.length > 0 && <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-6">
@@ -315,6 +321,16 @@ function Composer(p: any) {
   </section>;
 }
 
+function ReleaseInfo({ type, version, channel, files, notes, components }: any) {
+  const base = type === "base"; const count = files.length;
+  const generated = base
+    ? "OrbitFS Base deployment " + (version || "candidate") + "\n\nProduct: orbitfs_base\nSource: base-release\nChannel: " + channel + "\nDetected source changes: " + count + "\n\nThis deployment packages the current Base product state for the selected release channel. " + (count ? count + " source file" + (count === 1 ? "" : "s") + " changed since the last inspected release." : "No source changes were detected; the deployment can still be used to publish the current Base build as an intentional release.")
+    : "# OrbitFS Engine Update — " + (version || "candidate") + "\n\nRelease channel: " + channel + "\nComponents: " + (components.length ? components.map((x:string)=>x.toUpperCase()).join(", ") : "To be selected") + "\nDetected files: " + count + "\n\n" + (notes.trim() || "No developer notes supplied.") + "\n\n" + (count ? "The update includes " + count + " detected source file" + (count === 1 ? "" : "s") + " from the Engine source inspection." : "No source changes were detected. This release will still receive a generated changelog so the release record is complete.");
+  return <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-6">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">{base ? "Deployment information" : "Generated changelog"}</p><h2 className="mt-1 text-lg font-semibold">{base ? "What this Base release contains" : "Review before sending"}</h2><p className="mt-1 text-sm text-muted-foreground">{base ? "A descriptive release record is created even when no source changes are detected." : "Review this generated changelog before the workflow is allowed to start."}</p></div>{!base && <span className="rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground">{count} detected</span>}</div>
+    <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border bg-background p-4 text-xs leading-6 text-muted-foreground">{generated}</pre>
+  </div>;
+}
 function WorkflowConsole({ run, repo }: any) {
   const jobs = run.jobs || [];
   const state = run.conclusion || run.status || "queued";
