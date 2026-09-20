@@ -234,7 +234,8 @@ function Index() {
           <div className="mx-auto w-full max-w-6xl">
             {error && <Alert tone="error">{error}</Alert>}
             {notice && <Alert tone="success">{notice}</Alert>}
-            {run && <WorkflowConsole run={run} repo={runRepo} handoff={handoff} />}\n                        {tab === "overview" ? (
+            {run && <WorkflowConsole run={run} repo={runRepo} handoff={handoff} />}
+                        {tab === "overview" ? (
               <Dashboard stats={stats} releases={releases} loading={loading} onBase={() => setTab("base")} onEngine={() => setTab("engine")} />
             ) : (
               <Composer type={tab} reviewOpen={reviewOpen} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
