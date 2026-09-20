@@ -1,23 +1,312 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect,useMemo,useState } from "react";
-import { getPanelState,inspectSource,startRelease,login } from "@/lib/panel.server";
+import { useEffect, useMemo, useState } from "react";
+import { getPanelState, inspectSource, startRelease, login } from "@/lib/panel.server";
 
-export const Route=createFileRoute("/")({component:Index});
+export const Route = createFileRoute("/")({ component: Index });
 
-function Index(){
- const [session,setSession]=useState<any>(null),[loading,setLoading]=useState(true),[tab,setTab]=useState<"overview"|"base"|"engine">("overview"),[error,setError]=useState(""),[notice,setNotice]=useState(""),[data,setData]=useState<any>({base:{releases:[]},engine:{releases:[]}}),[busy,setBusy]=useState("");
- const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[version,setVersion]=useState(""),[channel,setChannel]=useState("stable"),[notes,setNotes]=useState(""),[files,setFiles]=useState<any[]>([]),[components,setComponents]=useState<string[]>([]),[minBase,setMinBase]=useState("1.0.0"),[protocol,setProtocol]=useState("1");
- const load=async(s=session)=>{if(!s)return;setLoading(true);setError("");try{const [b,e]=await Promise.all([getPanelState({data:{token:s.token,type:"base",channel}}),getPanelState({data:{token:s.token,type:"engine",channel}})]);setData({base:b,engine:e})}catch(x:any){setError(x.message||"Unable to load release data")}finally{setLoading(false)}};
- useEffect(()=>{try{const raw=localStorage.getItem("orbitfs_panel_user"),token=localStorage.getItem("orbitfs_panel_session");if(raw&&token){const u=JSON.parse(raw);const s={...u,token};setSession(s);load(s)}else setLoading(false)}catch{setLoading(false)}},[]);
- const stats=useMemo(()=>{const all=[...(data.base.releases||[]),...(data.engine.releases||[])];return{pending:all.filter(r=>r.review_status==="pending").length,failed:all.filter(r=>r.manifest?.validation?.status==="failed").length,approved:all.filter(r=>r.review_status==="approved"&&r.status!=="published").length,published:all.filter(r=>r.status==="published").length}},[data]);
- const doLogin=async(e:any)=>{e.preventDefault();setBusy("login");setError("");try{const r=await login({data:{email,password}});localStorage.setItem("orbitfs_panel_session",r.token);localStorage.setItem("orbitfs_panel_user",JSON.stringify(r.user));setSession({...r.user,token:r.token});setPassword("");await load({...r.user,token:r.token})}catch(x:any){setError(x.message||"Unable to sign in")}finally{setBusy("")}};
- const signOut=()=>{localStorage.removeItem("orbitfs_panel_session");localStorage.removeItem("orbitfs_panel_user");setSession(null);setData({base:{releases:[]},engine:{releases:[]}})};
- const inspect=async(type:"base"|"engine")=>{setBusy("inspect");setError("");setNotice("");try{const current=data[type].releases?.find((r:any)=>r.review_status==="approved"&&r.source_sha)?.source_sha;const r=await inspectSource({data:{token:session.token,type,from:current}});setFiles(r.files||[]);setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0,8)}. ${r.files.length} changed files detected.`)}catch(x:any){setError(x.message||"Unable to inspect source")}finally{setBusy("")}};
- const start=async(type:"base"|"engine")=>{setBusy("start");setError("");setNotice("");try{const r=await startRelease({data:{token:session.token,type,version,channel,notes,files,components,minimumBaseVersion:minBase,protocol}});setNotice(`Workflow started: ${r.repo} / ${r.workflow}`);setVersion("");setNotes("");setFiles([]);await load()}catch(x:any){setError(x.message||"Unable to start release")}finally{setBusy("")}};
- if(!session)return <div className="min-h-screen bg-background flex items-center justify-center p-6"><form onSubmit={doLogin} className="w-full max-w-lg rounded-2xl border bg-card/95 p-[clamp(1.25rem,4vw,2rem)] shadow-2xl space-y-4"><div><h1 className="text-2xl font-bold">OrbitFS Release Control</h1><p className="text-muted-foreground mt-1">Sign in with the same account used by License Master.</p></div><input className="w-full rounded-md border bg-background p-3" type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required/><input className="w-full rounded-md border bg-background p-3" type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} required/>{error&&<p className="text-sm text-destructive">{error}</p>}<button className="w-full rounded-md bg-primary text-primary-foreground p-3" disabled={busy==="login"}>{busy==="login"?"Signing in…":"Sign in"}</button></form></div>;
- const releases=tab==="base"?data.base.releases:tab==="engine"?data.engine.releases:[...data.base.releases,...data.engine.releases];
- return <div className="min-h-screen bg-background text-foreground"><header className="border-b sticky top-0 bg-background/95 backdrop-blur z-10"><div className="max-w-7xl mx-auto p-4 flex items-center justify-between gap-4"><div><h1 className="font-bold text-lg">OrbitFS <span className="font-normal text-muted-foreground">Release Control</span></h1><p className="text-xs text-muted-foreground">Stage 1 · automated release preparation</p></div><div className="flex gap-2 items-center"><span className="text-xs text-green-600">● Connected</span><button className="rounded-md border px-3 py-2 text-sm" onClick={()=>load()}>Refresh</button><button className="rounded-md border px-3 py-2 text-sm" onClick={signOut}>Sign out</button></div></div></header><nav className="border-b"><div className="max-w-7xl mx-auto p-2 flex gap-2"><Nav active={tab==="overview"} onClick={()=>setTab("overview")}>Overview</Nav><Nav active={tab==="base"} onClick={()=>setTab("base")}>Base Deployment</Nav><Nav active={tab==="engine"} onClick={()=>setTab("engine")}>Engine Update</Nav></div></nav><main className="max-w-7xl mx-auto p-5 space-y-5">{error&&<div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm">{error}</div>}{notice&&<div className="rounded-md border border-green-600/30 bg-green-600/10 p-3 text-sm">{notice}</div>}{tab==="overview"?<><section className="rounded-xl border bg-card p-6"><div className="flex flex-col md:flex-row md:items-center justify-between gap-5"><div><p className="text-xs uppercase tracking-wider text-muted-foreground">Release system</p><h2 className="text-3xl font-bold mt-1">Release Control Panel</h2><p className="text-muted-foreground mt-2 max-w-2xl">Prepare Base and Engine candidates, detect source changes, and hand the completed candidate to the existing GitHub workflow. License Master remains the validation and technical review authority.</p></div><div className="flex gap-2"><button className="rounded-md bg-primary text-primary-foreground px-4 py-2" onClick={()=>setTab("base")}>New Base</button><button className="rounded-md border px-4 py-2" onClick={()=>setTab("engine")}>New Engine update</button></div></div></section><div className="grid grid-cols-2 md:grid-cols-4 gap-3">{Object.entries(stats).map(([k,v])=><div className="rounded-xl border bg-card p-5" key={k}><p className="text-xs text-muted-foreground uppercase">{k}</p><p className="text-3xl font-bold mt-2">{v as number}</p></div>)}</div><ReleaseList releases={releases}/></>:<Composer type={tab} {...{version,setVersion,channel,setChannel,notes,setNotes,files,setFiles,components,setComponents,minBase,setMinBase,protocol,setProtocol,busy}} onInspect={()=>inspect(tab)} onStart={()=>start(tab)} />}</main></div>
+type Tab = "overview" | "base" | "engine";
+
+function Index() {
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("overview");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [data, setData] = useState<any>({ base: { releases: [] }, engine: { releases: [] } });
+  const [busy, setBusy] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [version, setVersion] = useState("");
+  const [channel, setChannel] = useState("stable");
+  const [notes, setNotes] = useState("");
+  const [files, setFiles] = useState<any[]>([]);
+  const [components, setComponents] = useState<string[]>([]);
+  const [minBase, setMinBase] = useState("1.0.0");
+  const [protocol, setProtocol] = useState("1");
+
+  const load = async (s = session) => {
+    if (!s) return;
+    setLoading(true);
+    setError("");
+    try {
+      const [base, engine] = await Promise.all([
+        getPanelState({ data: { token: s.token, type: "base", channel } }),
+        getPanelState({ data: { token: s.token, type: "engine", channel } }),
+      ]);
+      setData({ base, engine });
+    } catch (x: any) {
+      setError(x.message || "Unable to load release data.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("orbitfs_panel_user");
+      const token = localStorage.getItem("orbitfs_panel_session");
+      if (raw && token) {
+        const user = JSON.parse(raw);
+        const s = { ...user, token };
+        setSession(s);
+        load(s);
+      } else setLoading(false);
+    } catch {
+      setLoading(false);
+    }
+  }, []);
+
+  const stats = useMemo(() => {
+    const all = [...(data.base.releases || []), ...(data.engine.releases || [])];
+    return {
+      pending: all.filter((r: any) => r.review_status === "pending").length,
+      failed: all.filter((r: any) => r.manifest?.validation?.status === "failed").length,
+      approved: all.filter((r: any) => r.review_status === "approved" && r.status !== "published").length,
+      published: all.filter((r: any) => r.status === "published").length,
+    };
+  }, [data]);
+
+  const doLogin = async (e: any) => {
+    e.preventDefault();
+    setBusy("login");
+    setError("");
+    try {
+      const r = await login({ data: { email, password } });
+      localStorage.setItem("orbitfs_panel_session", r.token);
+      localStorage.setItem("orbitfs_panel_user", JSON.stringify(r.user));
+      const s = { ...r.user, token: r.token };
+      setSession(s);
+      setPassword("");
+      await load(s);
+    } catch (x: any) {
+      setError(x.message || "Unable to sign in.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const signOut = () => {
+    localStorage.removeItem("orbitfs_panel_session");
+    localStorage.removeItem("orbitfs_panel_user");
+    setSession(null);
+    setData({ base: { releases: [] }, engine: { releases: [] } });
+  };
+
+  const inspect = async (type: "base" | "engine") => {
+    setBusy("inspect");
+    setError("");
+    setNotice("");
+    try {
+      const current = data[type].releases?.find((r: any) => r.review_status === "approved" && r.source_sha)?.source_sha;
+      const r = await inspectSource({ data: { token: session.token, type, from: current } });
+      setFiles(r.files || []);
+      setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)}. ${r.files.length} changed files detected.`);
+    } catch (x: any) {
+      setError(x.message || "Unable to inspect source.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const start = async (type: "base" | "engine") => {
+    setBusy("start");
+    setError("");
+    setNotice("");
+    try {
+      const r = await startRelease({
+        data: { token: session.token, type, version, channel, notes, files, components, minimumBaseVersion: minBase, protocol },
+      });
+      setNotice(`Workflow started: ${r.repo} / ${r.workflow}`);
+      setVersion("");
+      setNotes("");
+      setFiles([]);
+      await load();
+    } catch (x: any) {
+      setError(x.message || "Unable to start release.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  if (!session) {
+    return (
+      <div className="min-h-screen grid place-items-center p-5">
+        <form onSubmit={doLogin} className="w-full max-w-md rounded-3xl border bg-card p-7 shadow-2xl">
+          <div className="mb-7">
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground font-black">O</div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">OrbitFS</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight">Release Control</h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">Prepare Base and Engine releases from one controlled workspace.</p>
+          </div>
+          <div className="space-y-3">
+            <label className="block text-sm font-medium">Email<input className="mt-1.5 w-full rounded-xl border bg-background px-3.5 py-3" type="email" value={email} onChange={e => setEmail(e.target.value)} required /></label>
+            <label className="block text-sm font-medium">Password<input className="mt-1.5 w-full rounded-xl border bg-background px-3.5 py-3" type="password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
+          </div>
+          {error && <Alert tone="error">{error}</Alert>}
+          <button className="mt-5 w-full rounded-xl bg-primary px-4 py-3 font-semibold text-primary-foreground shadow-lg shadow-primary/15" disabled={busy === "login"}>{busy === "login" ? "Signing in…" : "Sign in"}</button>
+        </form>
+      </div>
+    );
+  }
+
+  const releases = tab === "base" ? data.base.releases : tab === "engine" ? data.engine.releases : [...data.base.releases, ...data.engine.releases];
+
+  return (
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-[1500px] items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-black text-primary-foreground">O</div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">OrbitFS Release Control</div>
+              <div className="hidden text-xs text-muted-foreground sm:block">Controlled release workspace</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden items-center gap-1.5 rounded-full border bg-card px-2.5 py-1.5 text-xs text-muted-foreground sm:flex"><i className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Connected</span>
+            <button className="rounded-xl border bg-card px-3 py-2 text-sm hover:bg-accent" onClick={() => load()}>{loading ? "Refreshing…" : "Refresh"}</button>
+            <button className="hidden rounded-xl border bg-card px-3 py-2 text-sm hover:bg-accent sm:block" onClick={signOut}>Sign out</button>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto flex w-full max-w-[1500px] flex-col lg:flex-row">
+        <aside className="border-b lg:sticky lg:top-[65px] lg:h-[calc(100vh-65px)] lg:w-64 lg:shrink-0 lg:border-b-0 lg:border-r">
+          <nav className="flex gap-1 overflow-x-auto p-3 lg:flex-col lg:p-4">
+            <Nav active={tab === "overview"} onClick={() => setTab("overview")} label="Dashboard" detail="System overview" icon="⌂" />
+            <Nav active={tab === "base"} onClick={() => setTab("base")} label="Base Deployment" detail="orbitfs_base" icon="B" />
+            <Nav active={tab === "engine"} onClick={() => setTab("engine")} label="Engine Updates" detail="MCP · Apex · Studio" icon="E" />
+          </nav>
+          <div className="mx-4 hidden rounded-2xl border bg-card p-4 lg:block">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Workflow</p>
+            <p className="mt-2 text-sm font-medium">Stage 1 · Release preparation</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Detect changes, build the candidate, then hand it to License Master for validation.</p>
+          </div>
+        </aside>
+
+        <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
+          <div className="mx-auto w-full max-w-6xl">
+            {error && <Alert tone="error">{error}</Alert>}
+            {notice && <Alert tone="success">{notice}</Alert>}
+            {tab === "overview" ? (
+              <Dashboard stats={stats} releases={releases} loading={loading} onBase={() => setTab("base")} onEngine={() => setTab("engine")} />
+            ) : (
+              <Composer type={tab} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
+            )}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
 }
-function Nav({active,onClick,children}:any){return <button onClick={onClick} className={`rounded-md px-3 py-2 text-sm ${active?"bg-muted font-medium":"text-muted-foreground"}`}>{children}</button>}
-function Composer(p:any){const base=p.type==="base",can=Boolean(p.version.trim())&&(base||p.components.length>0);return <section className="space-y-4"><div><p className="text-xs uppercase tracking-wider text-muted-foreground">{base?"Base Deployment":"Engine Update"}</p><h2 className="text-3xl font-bold">{base?"Build Base release":"Build Engine update"}</h2><p className="text-muted-foreground mt-1">{base?"Complete Base candidate from the base-release branch.":"Detect changed files and identify which Engine components are part of the update."}</p></div><div className="rounded-2xl border bg-card/90 p-[clamp(1rem,2vw,1.5rem)] shadow-sm space-y-4"><div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-4"><label className="text-sm">Version<input className="mt-1 w-full rounded-md border bg-background p-2.5" placeholder="1.2.3" value={p.version} onChange={e=>p.setVersion(e.target.value)}/></label><label className="text-sm">Channel<select className="mt-1 w-full rounded-md border bg-background p-2.5" value={p.channel} onChange={e=>p.setChannel(e.target.value)}><option>stable</option><option>beta</option><option>dev</option></select></label></div>{!base&&<><div><p className="text-sm mb-2">Components</p><div className="flex gap-2 flex-wrap">{["apex","mcp","studio"].map((c)=><button type="button" key={c} onClick={()=>p.setComponents((x:string[])=>x.includes(c)?x.filter(y=>y!==c):[...x,c])} className={`rounded-md border px-3 py-2 text-sm ${p.components.includes(c)?"bg-primary text-primary-foreground":""}`}>{c.toUpperCase()}</button>)}</div></div><div className="grid md:grid-cols-2 gap-4"><label className="text-sm">Minimum Base version<input className="mt-1 w-full rounded-md border bg-background p-2.5" value={p.minBase} onChange={e=>p.setMinBase(e.target.value)}/></label><label className="text-sm">Minimum deployer protocol<input className="mt-1 w-full rounded-md border bg-background p-2.5" value={p.protocol} onChange={e=>p.setProtocol(e.target.value)}/></label></div></>}<label className="text-sm">Release notes<textarea className="mt-1 w-full min-h-32 rounded-md border bg-background p-2.5" value={p.notes} onChange={e=>p.setNotes(e.target.value)} placeholder="Optional details for the generated changelog."/></label><div className="flex gap-2"><button type="button" className="rounded-md border px-4 py-2" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?"Inspecting…":"Detect source changes"}</button><button type="button" className="rounded-md bg-primary text-primary-foreground px-4 py-2" disabled={!can||p.busy==="start"} onClick={p.onStart}>{p.busy==="start"?"Starting…":"Start release workflow"}</button></div></div>{p.files.length>0&&<div className="rounded-2xl border bg-card/90 p-[clamp(1rem,2vw,1.5rem)] shadow-sm"><div><h3 className="font-semibold">Detected changes</h3><p className="text-sm text-muted-foreground">{p.files.length} files will be supplied to the workflow.</p></div><div className="mt-3 max-h-96 overflow-auto text-xs">{p.files.map((f:any)=><div key={f.filename} className="flex gap-3 border-t py-2"><span className="w-10">{f.status}</span><code className="flex-1 truncate">{f.filename}</code><span>+{f.additions} −{f.deletions}</span></div>)}</div></div>}</section>}
-function ReleaseList({releases}:any){return <section className="rounded-xl border bg-card p-5"><div className="flex justify-between items-center"><div><h3 className="font-semibold">Release queue</h3><p className="text-sm text-muted-foreground">Live candidates received by License Master.</p></div><span className="text-xs text-muted-foreground">{releases.length} total</span></div><div className="mt-3">{releases.slice(0,20).map((r:any)=><div key={r.id} className="border-t py-3 flex flex-col md:flex-row md:items-center justify-between gap-2"><div><strong>{r.product_name||"OrbitFS"} {r.version}</strong><p className="text-xs text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref||"—"} · {(r.source_sha||"").slice(0,8)}</p></div><div className="flex gap-1 text-xs"><span className="rounded-full bg-muted px-2 py-1">{r.status}</span><span className="rounded-full bg-muted px-2 py-1">review {r.review_status}</span><span className="rounded-full bg-muted px-2 py-1">validation {r.manifest?.validation?.status||"not run"}</span></div></div>)}{!releases.length&&<p className="py-8 text-center text-sm text-muted-foreground">No releases yet.</p>}</div></section>}
+
+function Nav({ active, onClick, label, detail, icon }: any) {
+  return <button onClick={onClick} className={`group flex min-w-max items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left transition hover:bg-accent lg:w-full ${active ? "bg-accent border-border shadow-sm" : "text-muted-foreground"}`}>
+    <span className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${active ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>{icon}</span>
+    <span className="hidden lg:block"><span className="block text-sm font-medium">{label}</span><span className="block text-[11px] text-muted-foreground">{detail}</span></span>
+    <span className="lg:hidden text-sm font-medium">{label}</span>
+  </button>;
+}
+
+function Dashboard({ stats, releases, loading, onBase, onEngine }: any) {
+  return <section className="space-y-6">
+    <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+      <div>
+        <p className="text-sm font-medium text-primary">Release workspace</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">Everything in one place.</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Prepare release candidates, inspect source changes, and launch the existing GitHub workflows without mixing Base and Engine operations.</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/10" onClick={onBase}>New Base release</button>
+        <button className="rounded-xl border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-accent" onClick={onEngine}>New Engine update</button>
+      </div>
+    </div>
+
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      {Object.entries(stats).map(([key, value]) => <div key={key} className="rounded-2xl border bg-card p-4 sm:p-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{key}</p>
+        <p className="mt-2 text-3xl font-semibold tracking-tight">{value as number}</p>
+      </div>)}
+    </div>
+
+    <div className="grid gap-4 xl:grid-cols-2">
+      <QuickCard title="Base Deployment" subtitle="orbitfs_base" description="Create a Base candidate from the base-release branch and send it through the existing release workflow." action="Open Base" onClick={onBase} />
+      <QuickCard title="Engine Updates" subtitle="MCP · Apex · Studio" description="Inspect changed files, select Engine components, and publish an update through the UPDATE_RELEASE workflow." action="Open Engine" onClick={onEngine} />
+    </div>
+
+    <ReleaseList releases={releases} loading={loading} />
+  </section>;
+}
+
+function QuickCard({ title, subtitle, description, action, onClick }: any) {
+  return <div className="rounded-2xl border bg-card p-5 sm:p-6">
+    <div className="flex items-start justify-between gap-4">
+      <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">{subtitle}</p><h2 className="mt-1 text-xl font-semibold">{title}</h2></div>
+      <span className="rounded-xl bg-muted px-2.5 py-1.5 text-xs text-muted-foreground">Stage 1</span>
+    </div>
+    <p className="mt-3 text-sm leading-6 text-muted-foreground">{description}</p>
+    <button className="mt-5 rounded-xl border bg-background px-3.5 py-2 text-sm font-medium hover:bg-accent" onClick={onClick}>{action} →</button>
+  </div>;
+}
+
+function Composer(p: any) {
+  const base = p.type === "base";
+  const can = Boolean(p.version.trim()) && (base || p.components.length > 0);
+  return <section className="space-y-6">
+    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+      <div><p className="text-sm font-medium text-primary">{base ? "Base Deployment" : "Engine Updates"}</p><h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">{base ? "Prepare a Base release." : "Prepare an Engine update."}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{base ? "Build a release candidate from the base-release branch." : "Detect source changes and choose the Engine components included in this update."}</p></div>
+      <span className="w-fit rounded-full border bg-card px-3 py-1.5 text-xs text-muted-foreground">{base ? "orbitfs_base · base-release" : "UPDATE_RELEASE"}</span>
+    </div>
+
+    <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-6">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)} /></Field>
+        <Field label="Release channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}><option>stable</option><option>beta</option><option>dev</option></select></Field>
+      </div>
+
+      {!base && <div className="mt-5 border-t pt-5">
+        <p className="text-sm font-medium">Components</p><p className="mt-1 text-xs text-muted-foreground">Choose what the Engine update contains.</p>
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">{["apex", "mcp", "studio"].map((c) => {
+          const selected = p.components.includes(c);
+          return <button type="button" key={c} onClick={() => p.setComponents((x: string[]) => x.includes(c) ? x.filter(y => y !== c) : [...x, c])} className={`rounded-xl border p-3 text-left transition ${selected ? "border-primary bg-primary/10" : "bg-background hover:bg-accent"}`}>
+            <span className="block text-sm font-semibold">{c.toUpperCase()}</span><span className="mt-0.5 block text-xs text-muted-foreground">{selected ? "Included in update" : "Not selected"}</span>
+          </button>;
+        })}</div>
+      </div>}
+
+      {!base && <div className="mt-5 grid gap-4 border-t pt-5 sm:grid-cols-2">
+        <Field label="Minimum Base version"><input className="control" value={p.minBase} onChange={e => p.setMinBase(e.target.value)} /></Field>
+        <Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e => p.setProtocol(e.target.value)} /></Field>
+      </div>}
+
+      <div className="mt-5 border-t pt-5"><Field label="Release notes"><textarea className="control min-h-32 resize-y" value={p.notes} onChange={e => p.setNotes(e.target.value)} placeholder="Optional details for the generated changelog." /></Field></div>
+
+      <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
+        <button type="button" className="rounded-xl border bg-background px-4 py-2.5 text-sm font-medium hover:bg-accent" disabled={p.busy === "inspect"} onClick={p.onInspect}>{p.busy === "inspect" ? "Inspecting source…" : "Detect source changes"}</button>
+        <button type="button" className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/10" disabled={!can || p.busy === "start"} onClick={p.onStart}>{p.busy === "start" ? "Starting workflow…" : "Start release workflow"}</button>
+      </div>
+      {!can && <p className="mt-2 text-right text-xs text-muted-foreground">{base ? "Enter a version to continue." : "Enter a version and select at least one component."}</p>}
+    </div>
+
+    {p.files.length > 0 && <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-6">
+      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><h2 className="font-semibold">Detected changes</h2><p className="mt-1 text-sm text-muted-foreground">{p.files.length} files will be supplied to the workflow.</p></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Source inspection complete</span></div>
+      <div className="mt-4 overflow-hidden rounded-xl border"><div className="max-h-96 overflow-auto">{p.files.map((f: any) => <div key={f.filename} className="grid grid-cols-[55px_minmax(0,1fr)_80px] gap-2 border-b px-3 py-2.5 text-xs last:border-b-0 sm:grid-cols-[70px_minmax(0,1fr)_110px]"><span className="font-medium uppercase text-muted-foreground">{f.status}</span><code className="truncate">{f.filename}</code><span className="text-right text-muted-foreground">+{f.additions} −{f.deletions}</span></div>)}</div></div>
+    </div>}
+  </section>;
+}
+
+function Field({ label, children }: any) { return <label className="block text-sm font-medium">{label}{children}</label>; }
+function Alert({ tone, children }: any) { return <div className={`mb-4 rounded-xl border px-4 py-3 text-sm ${tone === "error" ? "border-destructive/40 bg-destructive/10 text-foreground" : "border-emerald-400/30 bg-emerald-400/10 text-foreground"}`}>{children}</div>; }
+
+function ReleaseList({ releases, loading }: any) {
+  return <section className="rounded-2xl border bg-card p-4 shadow-sm sm:p-6">
+    <div className="flex items-end justify-between gap-3"><div><h2 className="text-lg font-semibold">Release queue</h2><p className="mt-1 text-sm text-muted-foreground">Candidates currently visible to License Master.</p></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">{loading ? "Refreshing…" : `${releases.length} total`}</span></div>
+    <div className="mt-4 overflow-hidden rounded-xl border">
+      {releases.slice(0, 20).map((r: any) => <div key={r.id} className="flex flex-col gap-3 border-b p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0"><strong className="block truncate text-sm">{r.product_name || "OrbitFS"} {r.version}</strong><p className="mt-1 truncate text-xs text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref || "—"} · {(r.source_sha || "").slice(0, 8)}</p></div>
+        <div className="flex flex-wrap gap-1.5 text-xs"><span className="rounded-full bg-muted px-2 py-1">{r.status}</span><span className="rounded-full bg-muted px-2 py-1">review {r.review_status}</span><span className="rounded-full bg-muted px-2 py-1">validation {r.manifest?.validation?.status || "not run"}</span></div>
+      </div>)}
+      {!releases.length && <div className="py-12 text-center text-sm text-muted-foreground">No releases yet.</div>}
+    </div>
+  </section>;
+}
