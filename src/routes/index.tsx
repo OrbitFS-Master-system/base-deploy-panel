@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { getPanelState, inspectSource, startRelease, login } from "@/lib/panel.server";
+import { getPanelState, inspectSource, startRelease, getReleaseRun, login } from "@/lib/panel.server";
 
 export const Route = createFileRoute("/")({ component: Index });
 
@@ -23,6 +23,8 @@ function Index() {
   const [components, setComponents] = useState<string[]>([]);
   const [minBase, setMinBase] = useState("1.0.0");
   const [protocol, setProtocol] = useState("1");
+  const [run, setRun] = useState<any>(null);
+  const [runRepo, setRunRepo] = useState("");
 
   const load = async (s = session) => {
     if (!s) return;
@@ -85,11 +87,27 @@ function Index() {
     }
   };
 
+  useEffect(() => {
+    if (!run?.id || !runRepo) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const r = await getReleaseRun({ data: { token: session.token, repo: runRepo, runId: run.id } });
+        if (!stopped) setRun({ ...r.run, jobs: r.jobs || [] });
+      } catch {}
+    };
+    poll();
+    const timer = setInterval(poll, 3000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [run?.id, runRepo, session?.token]);
+
   const signOut = () => {
     localStorage.removeItem("orbitfs_panel_session");
     localStorage.removeItem("orbitfs_panel_user");
     setSession(null);
     setData({ base: { releases: [] }, engine: { releases: [] } });
+    setRun(null);
+    setRunRepo("");
   };
 
   const inspect = async (type: "base" | "engine") => {
@@ -116,7 +134,9 @@ function Index() {
       const r = await startRelease({
         data: { token: session.token, type, version, channel, notes, files, components, minimumBaseVersion: minBase, protocol },
       });
-      setNotice(`Workflow started: ${r.repo} / ${r.workflow}`);
+      setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
+      setRunRepo(r.repo);
+      setNotice(r.runId ? `Workflow started and monitoring run #${r.runId}.` : "Workflow started. Waiting for GitHub run details…");
       setVersion("");
       setNotes("");
       setFiles([]);
@@ -188,7 +208,7 @@ function Index() {
           <div className="mx-auto w-full max-w-6xl">
             {error && <Alert tone="error">{error}</Alert>}
             {notice && <Alert tone="success">{notice}</Alert>}
-            {tab === "overview" ? (
+            {run && <WorkflowConsole run={run} repo={runRepo} />}\n                        {tab === "overview" ? (
               <Dashboard stats={stats} releases={releases} loading={loading} onBase={() => setTab("base")} onEngine={() => setTab("engine")} />
             ) : (
               <Composer type={tab} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
@@ -292,6 +312,30 @@ function Composer(p: any) {
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><h2 className="font-semibold">Detected changes</h2><p className="mt-1 text-sm text-muted-foreground">{p.files.length} files will be supplied to the workflow.</p></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Source inspection complete</span></div>
       <div className="mt-4 overflow-hidden rounded-xl border"><div className="max-h-96 overflow-auto">{p.files.map((f: any) => <div key={f.filename} className="grid grid-cols-[55px_minmax(0,1fr)_80px] gap-2 border-b px-3 py-2.5 text-xs last:border-b-0 sm:grid-cols-[70px_minmax(0,1fr)_110px]"><span className="font-medium uppercase text-muted-foreground">{f.status}</span><code className="truncate">{f.filename}</code><span className="text-right text-muted-foreground">+{f.additions} −{f.deletions}</span></div>)}</div></div>
     </div>}
+  </section>;
+}
+
+function WorkflowConsole({ run, repo }: any) {
+  const jobs = run.jobs || [];
+  const state = run.conclusion || run.status || "queued";
+  const tone = state === "success" ? "border-emerald-400/30 bg-emerald-400/10" : state === "failure" || state === "cancelled" ? "border-destructive/40 bg-destructive/10" : "border-primary/30 bg-primary/10";
+  const label = state === "success" ? "Release completed" : state === "failure" ? "Release failed" : state === "cancelled" ? "Release cancelled" : "Release in progress";
+  return <section className={`mb-6 rounded-2xl border p-4 shadow-sm sm:p-5 ${tone}`}>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live release console</p><h2 className="mt-1 text-lg font-semibold">{label}</h2><p className="mt-1 text-xs text-muted-foreground">{repo} · run #{run.id} · {run.status}{run.conclusion ? ` · ${run.conclusion}` : ""}</p></div>
+      <a className="rounded-xl border bg-background px-3 py-2 text-xs font-medium hover:bg-accent" href={run.html_url || `https://github.com/${repo}/actions/runs/${run.id}`} target="_blank" rel="noreferrer">Open GitHub run →</a>
+    </div>
+    <div className="mt-4 space-y-2">
+      {jobs.map((job: any) => {
+        const s = job.conclusion || job.status || "queued";
+        const cls = s === "success" ? "text-emerald-400" : s === "failure" ? "text-destructive" : "text-primary";
+        return <div key={job.id} className="rounded-xl border bg-background/60 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{job.name}</span><span className={`text-xs font-semibold uppercase ${cls}`}>{s}</span></div>
+          {job.steps?.length ? <div className="mt-2 grid gap-1 sm:grid-cols-2">{job.steps.map((step:any)=><div key={step.number || step.name} className="flex justify-between gap-2 text-xs text-muted-foreground"><span className="truncate">{step.name}</span><span className="shrink-0">{step.conclusion || step.status || "queued"}</span></div>)}</div> : null}
+        </div>;
+      })}
+      {!jobs.length && <p className="text-xs text-muted-foreground">Waiting for GitHub to report workflow jobs…</p>}
+    </div>
   </section>;
 }
 
