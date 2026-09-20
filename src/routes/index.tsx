@@ -25,7 +25,10 @@ function Index() {
   const [protocol, setProtocol] = useState("1");
   const [run, setRun] = useState<any>(null);
   const [runRepo, setRunRepo] = useState("");
-  const [reviewOpen, setReviewOpen] = useState(false);  const [handoff, setHandoff] = useState<any>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [handoff, setHandoff] = useState<any>(null);
+  const [runVersion, setRunVersion] = useState("");
+  const [runChannel, setRunChannel] = useState("stable");
 
   const load = async (s = session) => {
     if (!s) return;
@@ -102,13 +105,30 @@ function Index() {
     return () => { stopped = true; clearInterval(timer); };
   }, [run?.id, runRepo, session?.token]);
 
-  useEffect(() => {    if (!run?.id || !runRepo || !session || !version) return;    let stopped = false;    const poll = async () => {      try {        const type = runRepo === "lucaskerim123/V1-vercel-base" ? "base" : "engine";        const r = await getReleaseHandoff({ data: { token: session.token, type, version, channel } });        if (!stopped && r.release) setHandoff(r.release);      } catch {}    };    poll();    const timer = setInterval(poll, 5000);    return () => { stopped = true; clearInterval(timer); };  }, [run?.id, runRepo, session?.token, version, channel]);  const signOut = () => {
+  useEffect(() => {
+    if (!run?.id || !runRepo || !session || !runVersion) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const type = runRepo === "lucaskerim123/V1-vercel-base" ? "base" : "engine";
+        const r = await getReleaseHandoff({ data: { token: session.token, type, version: runVersion, channel: runChannel } });
+        if (!stopped && r.release) setHandoff(r.release);
+      } catch {}
+    };
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [run?.id, runRepo, session?.token, runVersion, runChannel]);
+
+  const signOut = () => {
     localStorage.removeItem("orbitfs_panel_session");
     localStorage.removeItem("orbitfs_panel_user");
     setSession(null);
     setData({ base: { releases: [] }, engine: { releases: [] } });
     setRun(null);
-    setRunRepo("");    setHandoff(null);
+    setRunRepo("");
+    setRunVersion("");
+    setHandoff(null);
   };
 
   const inspect = async (type: "base" | "engine") => {
@@ -139,6 +159,9 @@ function Index() {
       setReviewOpen(false);
       setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
       setRunRepo(r.repo);
+      setRunVersion(version);
+      setRunChannel(channel);
+      setHandoff(null);
       setNotice(r.runId ? `Workflow started and monitoring run #${r.runId}.` : "Workflow started. Waiting for GitHub run details…");
       setVersion("");
       setNotes("");
@@ -352,6 +375,10 @@ function WorkflowConsole({ run, repo, handoff }: any) {
       })}
       {!jobs.length && <p className="text-xs text-muted-foreground">Waiting for GitHub to report workflow jobs…</p>}
     </div>
+    {handoff && <div className="mt-4 rounded-xl border bg-background/60 px-3 py-3 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">License Master handoff</span><span className="rounded-full bg-muted px-2 py-1">release {handoff.id}</span></div>
+      <p className="mt-1 text-muted-foreground">Candidate registered · review {handoff.review_status || "pending"} · validation {handoff.manifest?.validation?.status || "pending"}</p>
+    </div>}
   </section>;
 }
 
