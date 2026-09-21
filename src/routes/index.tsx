@@ -417,10 +417,59 @@ function ReleaseTable({ releases }: any) {
 }
 
 function SettingsPage({ data, connected }: any) {
-  const base=data.base?.repositories?.base, engine=data.engine?.repositories?.engine;
-  return <section className="space-y-4"><PageHead title="Configuration" detail="Read-only runtime configuration visible to Stage 1. Secrets stay server-side."/>
-    <div className="grid gap-4 md:grid-cols-2"><ConfigCard title="License Master" icon={ShieldCheck} rows={[["API base",data.base?.masterUrl||"—"],["Connection",connected?"Connected":"Unavailable"],["Product","orbitfs_base"]]}/><ConfigCard title="Base worker" icon={Rocket} rows={[["Repository",base?.repo||"—"],["Ref",base?.ref||"—"],["Workflow",base?.workflow||"—"]]}/><ConfigCard title="Engine worker" icon={Layers3} rows={[["Repository",engine?.repo||"—"],["Ref",engine?.ref||"—"],["Workflow",engine?.workflow||"—"]]}/><ConfigCard title="Release channels" icon={Activity} rows={[["Available",[...(new Set([...(data.base.channels||[]),...(data.engine.channels||[])])].join(", ")||"—")],["Role","Stage 1 preparation"],["Publication","Not handled here"]]}/></div>
-  </section>;
+  const base = data.base?.repositories?.base;
+  const engine = data.engine?.repositories?.engine;
+  const channels = Array.from(new Set([
+    ...(data.base?.channels || []),
+    ...(data.engine?.channels || []),
+  ])).join(", ") || "—";
+
+  return (
+    <section className="space-y-4">
+      <PageHead
+        title="Configuration"
+        detail="Read-only runtime configuration visible to Stage 1. Secrets stay server-side."
+      />
+      <div className="grid gap-4 md:grid-cols-2">
+        <ConfigCard
+          title="License Master"
+          icon={ShieldCheck}
+          rows={[
+            ["API base", data.base?.masterUrl || "—"],
+            ["Connection", connected ? "Connected" : "Unavailable"],
+            ["Product", "orbitfs_base"],
+          ]}
+        />
+        <ConfigCard
+          title="Base worker"
+          icon={Rocket}
+          rows={[
+            ["Repository", base?.repo || "—"],
+            ["Ref", base?.ref || "—"],
+            ["Workflow", base?.workflow || "—"],
+          ]}
+        />
+        <ConfigCard
+          title="Engine worker"
+          icon={Layers3}
+          rows={[
+            ["Repository", engine?.repo || "—"],
+            ["Ref", engine?.ref || "—"],
+            ["Workflow", engine?.workflow || "—"],
+          ]}
+        />
+        <ConfigCard
+          title="Release channels"
+          icon={Activity}
+          rows={[
+            ["Available", channels],
+            ["Role", "Stage 1 preparation"],
+            ["Publication", "Not handled here"],
+          ]}
+        />
+      </div>
+    </section>
+  );
 }
 
 function ConfigCard({ title, icon: Icon, rows }: any) {
