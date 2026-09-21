@@ -11,6 +11,7 @@ const ENGINE_WORKFLOW=process.env.ENGINE_RELEASE_WORKFLOW||"publish-engine-relea
 
 const required=(name:string)=>{const v=process.env[name];if(!v)throw new Error(`Missing server environment variable: ${name}`);return v};
 const masterUrl=()=> (process.env.LICENSE_MASTER_URL||"https://incendiarynetworks.cc/api").replace(/\/+$/,"");
+const normalizeChannel=(value:string)=>String(value||"stable").trim().toLowerCase();
 
 type PanelUser={id:string;email:string;display_name:string;role:string};
 const sessionSecret=()=>required("APP_SESSION_SECRET");
@@ -53,9 +54,13 @@ export const login=createServerFn({method:"POST"}).handler(async({data}:{data:{e
 
 export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";channel?:string}})=>{
  readSession(data.token);
- const releaseType=data.type==="base"?"base":"update",channel=String(data.channel||"stable").trim().toLowerCase(),product="orbitfs_base";
- const releases=await licenseMaster(`/v1/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=true`);
- return {releases:releases?.releases||[],masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
+ const releaseType=data.type==="base"?"base":"update",channel=normalizeChannel(data.channel),product="orbitfs_base";
+ const [releases,channels]=await Promise.all([
+  licenseMaster(`/v1/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`),
+  licenseMaster(`/v1/release-channels?include_disabled=false`)
+ ]);
+ const availableChannels=Array.isArray(channels?.channels)?channels.channels.filter((x:any)=>x?.enabled===true).map((x:any)=>String(x.channel).trim().toLowerCase()).filter(Boolean):[];
+ return {releases:releases?.releases||[],channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
 });
 
 export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";from?:string}})=>{
@@ -68,7 +73,7 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
  return {repo,ref,head,files:(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes})),commits:cmp?.commits||[]};
 });
 
-export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string}})=>{  readSession(data.token);  const product="orbitfs_base";  const releaseType=data.type==="base"?"base":"update";  const channel=String(data.channel||"stable").trim().toLowerCase();  const result=await licenseMaster(`/v1/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=true`);  const release=(result?.releases||[]).find((r:any)=>String(r.version)===String(data.version));  return {release:release||null,product,releaseType,channel};});export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{
+export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string}})=>{  readSession(data.token);  const product="orbitfs_base";  const releaseType=data.type==="base"?"base":"update";  const channel=normalizeChannel(data.channel);  const result=await licenseMaster(`/v1/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`);  const release=(result?.releases||[]).find((r:any)=>String(r.version)===String(data.version)&&!r.archived_at);  return {release:release||null,product,releaseType,channel};});export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{
   readSession(data.token);
   const repo=String(data.repo||"").trim();
   if(!repo.includes("/"))throw new Error("Invalid release repository");
@@ -85,10 +90,14 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const version=data.version.trim();
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
  if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one Engine component.");
+ const channel=normalizeChannel(data.channel);
+ const channels=await licenseMaster(`/v1/release-channels?include_disabled=false`);
+ const channelEnabled=Array.isArray(channels?.channels)&&channels.channels.some((x:any)=>String(x.channel).trim().toLowerCase()===channel&&x.enabled===true);
+ if(!channelEnabled)throw new Error("Release channel is not configured or is disabled in License Master: "+channel);
  const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF,workflow=data.type==="base"?BASE_WORKFLOW:ENGINE_WORKFLOW;
  const previousResult = data.type === "base"
-  ? await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(data.channel || "stable")}&type=base&include_archived=false`)
-  : await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(data.channel || "stable")}&type=update&include_archived=false`);
+  ? await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`)
+  : await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=update&include_archived=false`);
  const previousRelease = (previousResult?.releases || [])
   .filter((r:any) => r.review_status === "approved" && r.source_sha)
   .sort((a:any,b:any) => new Date(b.published_at || b.created_at || 0).getTime() - new Date(a.published_at || a.created_at || 0).getTime())[0];
@@ -97,7 +106,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   releaseType: data.type === "base" ? "base" : "update",
   product: "orbitfs_base",
   version,
-  channel: data.channel || "stable",
+  channel,
   sourceRepository: repo,
   sourceRef: ref,
   previousSourceCommit: previousRelease?.source_sha || null,
@@ -111,7 +120,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  };
  const inputs:any={
   version,
-  channel:data.channel,
+  channel,
   notes:data.notes.trim(),
   changed_files:JSON.stringify(data.files||[]),
   previous_source_commit:previousRelease?.source_sha || "",
@@ -129,7 +138,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
       runId=candidates.sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime())[0]?.id;
     }catch{}
   }
-  return {ok:true,repo,ref,workflow,runId:runId||null};
+  return {ok:true,repo,ref,workflow,channel,runId:runId||null};
 });
 
 async function requestJson(url:string,init:RequestInit={}){
