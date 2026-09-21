@@ -205,8 +205,8 @@ function Index() {
             {run && <LiveConsole run={run} repo={runRepo} handoff={handoff} />}
             {tab === "overview" && <Dashboard stats={stats} releases={allReleases} onBase={() => { resetComposer(); setTab("base"); }}
               onEngine={() => { resetComposer(); setTab("engine"); }} onActivity={() => setTab("activity")} />}
-            {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files,
-              setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
+            {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
+              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
               onInspect={() => inspect("base")} onStart={() => start("base")} />}
             {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files,
               setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
