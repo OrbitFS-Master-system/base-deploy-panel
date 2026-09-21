@@ -12,7 +12,7 @@ function Index() {
   const [tab, setTab] = useState<Tab>("overview");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [data, setData] = useState<any>({ base: { releases: [] }, engine: { releases: [] } });
+  const [data, setData] = useState<any>({ base: { releases: [], channels: [] }, engine: { releases: [], channels: [] } });
   const [busy, setBusy] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,6 +29,10 @@ function Index() {
   const [handoff, setHandoff] = useState<any>(null);
   const [runVersion, setRunVersion] = useState("");
   const [runChannel, setRunChannel] = useState("stable");
+  const availableChannels = useMemo(() => {
+    const channels = [...(data.base.channels || []), ...(data.engine.channels || [])];
+    return [...new Set(channels.map((x: string) => String(x).trim().toLowerCase()).filter(Boolean))];
+  }, [data]);
 
   const load = async (s = session) => {
     if (!s) return;
@@ -238,7 +242,7 @@ function Index() {
                         {tab === "overview" ? (
               <Dashboard stats={stats} releases={releases} loading={loading} onBase={() => setTab("base")} onEngine={() => setTab("engine")} />
             ) : (
-              <Composer type={tab} reviewOpen={reviewOpen} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
+              <Composer type={tab} reviewOpen={reviewOpen} channels={availableChannels} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
             )}
           </div>
         </main>
@@ -310,7 +314,7 @@ function Composer(p: any) {
     <div className="release-surface p-4 sm:p-5">
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)} /></Field>
-        <Field label="Release channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}><option>stable</option><option>beta</option><option>dev</option></select></Field>
+        <Field label="Release channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}>{(p.channels?.length ? p.channels : ["stable"]).map((x: string) => <option key={x} value={x}>{x}</option>)}</select></Field>
       </div>
 
       {!base && <div className="mt-4 border-t pt-4">
