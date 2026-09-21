@@ -92,3 +92,78 @@ input:focus, select:focus, textarea:focus {
 /* Compact release-console surfaces: hierarchy comes from spacing and separators, not oversized cards. */
 .release-surface { border: 1px solid var(--border); background: color-mix(in oklch, var(--card) 78%, transparent); border-radius: .55rem; }
 .release-divider { border-color: color-mix(in oklch, var(--border) 75%, transparent); }
+
+
+.control {
+  margin-top: .4rem;
+  display: block;
+  width: 100%;
+  border: 1px solid var(--input);
+  border-radius: .55rem;
+  background: color-mix(in oklch, var(--background) 88%, transparent);
+  color: var(--foreground);
+  padding: .65rem .75rem;
+  font-size: .8rem;
+}
+.button-primary, .button-secondary, .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  border-radius: .55rem;
+  font-size: .75rem;
+  font-weight: 600;
+  transition: background-color .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.button-primary {
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: .62rem .85rem;
+}
+.button-primary:hover { opacity: .9; }
+.button-secondary {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  padding: .62rem .85rem;
+}
+.button-secondary:hover, .icon-button:hover { background: var(--accent); }
+.icon-button {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+}
+.nav-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: .65rem;
+  border: 1px solid transparent;
+  border-radius: .6rem;
+  padding: .55rem .65rem;
+  text-align: left;
+  color: var(--muted-foreground);
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.nav-item:hover { background: var(--accent); color: var(--foreground); }
+.nav-item-active {
+  border-color: var(--border);
+  background: var(--accent);
+  color: var(--foreground);
+}
+.nav-icon {
+  display: flex;
+  height: 1.9rem;
+  width: 1.9rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: .45rem;
+  background: var(--muted);
+}
+.nav-item-active .nav-icon { background: var(--primary); color: var(--primary-foreground); }
+.nav-item b { display: block; font-size: .75rem; font-weight: 600; }
+.nav-item small { display: block; margin-top: .1rem; font-size: .625rem; color: var(--muted-foreground); }
