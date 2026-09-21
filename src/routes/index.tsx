@@ -208,8 +208,8 @@ function Index() {
             {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
               onInspect={() => inspect("base")} onStart={() => start("base")} />}
-            {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files,
-              setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
+            {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
+              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
               onInspect={() => inspect("engine")} onStart={() => start("engine")} />}
             {tab === "activity" && <ActivityPage releases={allReleases} run={run} />}
             {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
