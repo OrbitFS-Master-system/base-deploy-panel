@@ -12,6 +12,7 @@ function Index() {
   const [tab, setTab] = useState<Tab>("overview");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [masterConnected, setMasterConnected] = useState(false);
   const [data, setData] = useState<any>({ base: { releases: [], channels: [] }, engine: { releases: [], channels: [] } });
   const [busy, setBusy] = useState("");
   const [email, setEmail] = useState("");
@@ -44,7 +45,9 @@ function Index() {
         getPanelState({ data: { token: s.token, type: "engine", channel } }),
       ]);
       setData({ base, engine });
+      setMasterConnected(true);
     } catch (x: any) {
+      setMasterConnected(false);
       setError(x.message || "Unable to load release data.");
     } finally {
       setLoading(false);
@@ -97,11 +100,15 @@ function Index() {
 
   useEffect(() => {
     if (!run?.id || !runRepo) return;
+    if (["success", "failure", "cancelled"].includes(String(run.conclusion || ""))) return;
     let stopped = false;
     const poll = async () => {
       try {
         const r = await getReleaseRun({ data: { token: session.token, repo: runRepo, runId: run.id } });
-        if (!stopped) setRun({ ...r.run, jobs: r.jobs || [] });
+        if (!stopped) {
+          setRun({ ...r.run, jobs: r.jobs || [] });
+          if (["success", "failure", "cancelled"].includes(String(r.run?.conclusion || ""))) await load();
+        }
       } catch {}
     };
     poll();
@@ -213,7 +220,7 @@ function Index() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-full border bg-card px-2.5 py-1.5 text-xs text-muted-foreground sm:flex"><i className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Connected</span>
+            <span className="hidden items-center gap-1.5 rounded-full border bg-card px-2.5 py-1.5 text-xs text-muted-foreground sm:flex"><i className={`h-1.5 w-1.5 rounded-full ${masterConnected ? "bg-emerald-400" : "bg-destructive"}`} /> {masterConnected ? "License Master connected" : "License Master offline"}</span>
             <button className="rounded-lg border bg-card px-2.5 py-1.5 text-xs hover:bg-accent" onClick={() => load()}>{loading ? "Refreshing…" : "Refresh"}</button>
             <button className="hidden rounded-lg border bg-card px-2.5 py-1.5 text-xs hover:bg-accent sm:block" onClick={signOut}>Sign out</button>
           </div>
