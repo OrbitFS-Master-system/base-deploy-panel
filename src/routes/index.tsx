@@ -220,7 +220,7 @@ function Index() {
   );
 
   function resetComposer() {
-    setVersion(""); setNotes(""); setFiles([]); setComponents([]); setReviewOpen(false);
+    setVersion(""); setNotes(""); setFiles([]); setCommits([]); setComponents([]); setReviewOpen(false);
   }
 }
 
@@ -346,7 +346,6 @@ function PipelineStep({ icon: Icon, title, text }: any) {
 
 function Composer(p: any) {
   const base = p.type === "base";
-  const changelog = (p.commits || []).map((c:any) => String(c.message || c.subject || "").trim()).filter(Boolean);
   const canStart = Boolean(p.version.trim()) && (base || p.components.length > 0);
   return <section className="space-y-4">
     <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
