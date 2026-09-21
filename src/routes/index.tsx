@@ -168,7 +168,7 @@ function Index() {
         ref: r.ref,
         head: r.head,
       }));
-      setReviewOpen(type === "engine");
+      setReviewOpen(true);
       setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected.`);
     } catch (x: any) {
       setError(x.message || "Unable to inspect source.");
@@ -392,9 +392,9 @@ function Composer(p: any) {
           <p className="mt-1 text-[11px] text-muted-foreground">The template is filled automatically after source inspection. You can edit the completed changelog before sending it.</p>
         </div>
         <div className="mt-5 border-t pt-5"><Field label={base ? "Additional operator notes" : "Additional developer notes"}><textarea className="control min-h-24 resize-y" placeholder="Optional extra context. It will be included when the changelog is generated." value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
-        <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><button className="button-primary" disabled={!canStart||p.busy==="start"||(!base&&!p.reviewOpen)} onClick={p.onStart}>{p.busy==="start"?<Loader2 className="animate-spin" size={15}/>:<Rocket size={15}/>} {base?"Start Base workflow":p.reviewOpen?"Send reviewed update":"Inspect & review first"}</button></div>
+        <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><button className="button-primary" disabled={!canStart||p.busy==="start"||!p.reviewOpen||!p.changelogDraft.trim()} onClick={p.onStart}>{p.busy==="start"?<Loader2 className="animate-spin" size={15}/>:<Rocket size={15}/>} {p.reviewOpen ? (base ? "Send reviewed Base release" : "Send reviewed update") : "Inspect & review first"}</button></div>
         {!canStart && <p className="mt-2 text-right text-[11px] text-muted-foreground">{base?"Enter a SemVer version to continue.":"Enter a version and select at least one component."}</p>}
-        {!base&&canStart&&!p.reviewOpen&&<p className="mt-2 text-right text-[11px] text-muted-foreground">The update is intentionally gated until source inspection has been reviewed.</p>}
+        {canStart&&!p.reviewOpen&&<p className="mt-2 text-right text-[11px] text-muted-foreground">Inspect the source first. The release stays gated until the generated changelog has been reviewed.</p>}
       </section>
       <section className="release-surface p-4 sm:p-5">
         <SectionHead icon={ScrollText} title={base?"Release summary":"Review gate"} detail={base?"What Stage 1 will hand to the worker.":"Confirm the generated source context before dispatch."}/>
