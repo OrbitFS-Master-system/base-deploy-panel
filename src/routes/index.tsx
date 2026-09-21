@@ -1,10 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { getPanelState, inspectSource, startRelease, getReleaseRun, getReleaseHandoff, login } from "@/lib/panel.server";
+import {
+  Activity, AlertCircle, ArrowRight, CheckCircle2, ChevronRight, CircleDot,
+  Clock3, FileCode2, GitBranch, Github, Layers3, Loader2, PackageCheck,
+  RefreshCw, Rocket, ScrollText, Server, Settings2, ShieldCheck, Terminal,
+  UploadCloud, XCircle, Zap
+} from "lucide-react";
+import {
+  getPanelState, inspectSource, startRelease, getReleaseRun,
+  getReleaseHandoff, login
+} from "@/lib/panel.server";
 
 export const Route = createFileRoute("/")({ component: Index });
 
-type Tab = "overview" | "base" | "engine";
+type Tab = "overview" | "base" | "engine" | "activity" | "settings";
+type ReleaseType = "base" | "engine";
+
+const EMPTY = { releases: [], channels: [] };
 
 function Index() {
   const [session, setSession] = useState<any>(null);
@@ -13,10 +25,11 @@ function Index() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [masterConnected, setMasterConnected] = useState(false);
-  const [data, setData] = useState<any>({ base: { releases: [], channels: [] }, engine: { releases: [], channels: [] } });
+  const [data, setData] = useState<any>({ base: EMPTY, engine: EMPTY });
   const [busy, setBusy] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
   const [version, setVersion] = useState("");
   const [channel, setChannel] = useState("stable");
   const [notes, setNotes] = useState("");
@@ -24,20 +37,22 @@ function Index() {
   const [components, setComponents] = useState<string[]>([]);
   const [minBase, setMinBase] = useState("1.0.0");
   const [protocol, setProtocol] = useState("1");
+
   const [run, setRun] = useState<any>(null);
   const [runRepo, setRunRepo] = useState("");
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [handoff, setHandoff] = useState<any>(null);
   const [runVersion, setRunVersion] = useState("");
   const [runChannel, setRunChannel] = useState("stable");
+  const [handoff, setHandoff] = useState<any>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+
   const availableChannels = useMemo(() => {
-    const channels = [...(data.base.channels || []), ...(data.engine.channels || [])];
-    return [...new Set(channels.map((x: string) => String(x).trim().toLowerCase()).filter(Boolean))];
+    const all = [...(data.base.channels || []), ...(data.engine.channels || [])];
+    return [...new Set(all.map((x: any) => String(x).trim().toLowerCase()).filter(Boolean))];
   }, [data]);
 
-  const load = async (s = session) => {
+  const load = async (s = session, silent = false) => {
     if (!s) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError("");
     try {
       const [base, engine] = await Promise.all([
@@ -46,11 +61,12 @@ function Index() {
       ]);
       setData({ base, engine });
       setMasterConnected(true);
+      if (!channel && base.selectedChannel) setChannel(base.selectedChannel);
     } catch (x: any) {
       setMasterConnected(false);
-      setError(x.message || "Unable to load release data.");
+      setError(x.message || "Unable to connect to License Master.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -59,8 +75,7 @@ function Index() {
       const raw = localStorage.getItem("orbitfs_panel_user");
       const token = localStorage.getItem("orbitfs_panel_session");
       if (raw && token) {
-        const user = JSON.parse(raw);
-        const s = { ...user, token };
+        const s = { ...JSON.parse(raw), token };
         setSession(s);
         load(s);
       } else setLoading(false);
@@ -69,45 +84,21 @@ function Index() {
     }
   }, []);
 
-  const stats = useMemo(() => {
-    const all = [...(data.base.releases || []), ...(data.engine.releases || [])];
-    return {
-      pending: all.filter((r: any) => r.review_status === "pending").length,
-      failed: all.filter((r: any) => r.manifest?.validation?.status === "failed").length,
-      approved: all.filter((r: any) => r.review_status === "approved" && r.status !== "published").length,
-      published: all.filter((r: any) => r.status === "published").length,
-    };
-  }, [data]);
-
-  const doLogin = async (e: any) => {
-    e.preventDefault();
-    setBusy("login");
-    setError("");
-    try {
-      const r = await login({ data: { email, password } });
-      localStorage.setItem("orbitfs_panel_session", r.token);
-      localStorage.setItem("orbitfs_panel_user", JSON.stringify(r.user));
-      const s = { ...r.user, token: r.token };
-      setSession(s);
-      setPassword("");
-      await load(s);
-    } catch (x: any) {
-      setError(x.message || "Unable to sign in.");
-    } finally {
-      setBusy("");
-    }
-  };
+  useEffect(() => {
+    if (session) load(session, true);
+  }, [channel]);
 
   useEffect(() => {
-    if (!run?.id || !runRepo) return;
-    if (["success", "failure", "cancelled"].includes(String(run.conclusion || ""))) return;
+    if (!run?.id || !runRepo || !session) return;
+    if (["success", "failure", "cancelled", "skipped"].includes(String(run.conclusion || ""))) return;
     let stopped = false;
     const poll = async () => {
       try {
         const r = await getReleaseRun({ data: { token: session.token, repo: runRepo, runId: run.id } });
-        if (!stopped) {
-          setRun({ ...r.run, jobs: r.jobs || [] });
-          if (["success", "failure", "cancelled"].includes(String(r.run?.conclusion || ""))) await load();
+        if (stopped) return;
+        setRun({ ...r.run, jobs: r.jobs || [] });
+        if (["success", "failure", "cancelled", "skipped"].includes(String(r.run?.conclusion || ""))) {
+          await load(session, true);
         }
       } catch {}
     };
@@ -118,11 +109,14 @@ function Index() {
 
   useEffect(() => {
     if (!run?.id || !runRepo || !session || !runVersion) return;
+    if (["success", "failure", "cancelled", "skipped"].includes(String(run.conclusion || ""))) return;
     let stopped = false;
     const poll = async () => {
       try {
-        const type = runRepo === "lucaskerim123/V1-vercel-base" ? "base" : "engine";
-        const r = await getReleaseHandoff({ data: { token: session.token, type, version: runVersion, channel: runChannel } });
+        const type: ReleaseType = runRepo === "lucaskerim123/V1-vercel-base" ? "base" : "engine";
+        const r = await getReleaseHandoff({
+          data: { token: session.token, type, version: runVersion, channel: runChannel }
+        });
         if (!stopped && r.release) setHandoff(r.release);
       } catch {}
     };
@@ -131,281 +125,312 @@ function Index() {
     return () => { stopped = true; clearInterval(timer); };
   }, [run?.id, runRepo, session?.token, runVersion, runChannel]);
 
+  const stats = useMemo(() => {
+    const all = [...(data.base.releases || []), ...(data.engine.releases || [])];
+    return {
+      candidates: all.filter((r: any) => r.review_status === "pending").length,
+      validationFailed: all.filter((r: any) => r.manifest?.validation?.status === "failed").length,
+      ready: all.filter((r: any) => r.review_status === "approved" && r.status !== "published").length,
+      published: all.filter((r: any) => r.status === "published").length,
+    };
+  }, [data]);
+
   const signOut = () => {
     localStorage.removeItem("orbitfs_panel_session");
     localStorage.removeItem("orbitfs_panel_user");
     setSession(null);
-    setData({ base: { releases: [] }, engine: { releases: [] } });
-    setRun(null);
-    setRunRepo("");
-    setRunVersion("");
-    setHandoff(null);
+    setData({ base: EMPTY, engine: EMPTY });
+    setRun(null); setRunRepo(""); setHandoff(null);
   };
 
-  const inspect = async (type: "base" | "engine") => {
+  const inspect = async (type: ReleaseType) => {
     setBusy("inspect");
-    setError("");
-    setNotice("");
+    setError(""); setNotice("");
     try {
       const current = data[type].releases?.find((r: any) => r.review_status === "approved" && r.source_sha)?.source_sha;
       const r = await inspectSource({ data: { token: session.token, type, from: current } });
       setFiles(r.files || []);
-      setReviewOpen(true);
-      setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)}. ${r.files.length} changed files detected.`);
+      setReviewOpen(type === "engine");
+      setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected.`);
     } catch (x: any) {
       setError(x.message || "Unable to inspect source.");
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   };
 
-  const start = async (type: "base" | "engine") => {
-    setBusy("start");
-    setError("");
-    setNotice("");
+  const start = async (type: ReleaseType) => {
+    setBusy("start"); setError(""); setNotice("");
     try {
       const r = await startRelease({
-        data: { token: session.token, type, version, channel, notes, files, components, minimumBaseVersion: minBase, protocol },
+        data: { token: session.token, type, version, channel, notes, files, components,
+          minimumBaseVersion: minBase, protocol }
       });
       setReviewOpen(false);
       setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
-      setRunRepo(r.repo);
-      setRunVersion(version);
-      setRunChannel(channel);
-      setHandoff(null);
-      setNotice(r.runId ? `Workflow started and monitoring run #${r.runId}.` : "Workflow started. Waiting for GitHub run details…");
-      setVersion("");
-      setNotes("");
-      setFiles([]);
+      setRunRepo(r.repo); setRunVersion(version); setRunChannel(channel); setHandoff(null);
+      setNotice(r.runId ? `GitHub workflow started · run #${r.runId}` : "Workflow dispatched. Waiting for GitHub run details.");
+      setVersion(""); setNotes(""); setFiles([]);
       await load();
+      setTab("activity");
     } catch (x: any) {
       setError(x.message || "Unable to start release.");
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   };
 
-  if (!session) {
-    return (
-      <div className="min-h-screen grid place-items-center p-5">
-        <form onSubmit={doLogin} className="w-full max-w-md rounded-3xl border bg-card p-7 shadow-2xl">
-          <div className="mb-7">
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground font-black">O</div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">OrbitFS</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">Release Control</h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">Prepare Base and Engine releases from one controlled workspace.</p>
-          </div>
-          <div className="space-y-3">
-            <label className="block text-sm font-medium">Email<input className="mt-1.5 w-full rounded-lg border bg-background px-3.5 py-3" type="email" value={email} onChange={e => setEmail(e.target.value)} required /></label>
-            <label className="block text-sm font-medium">Password<input className="mt-1.5 w-full rounded-lg border bg-background px-3.5 py-3" type="password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
-          </div>
-          {error && <Alert tone="error">{error}</Alert>}
-          <button className="mt-5 w-full rounded-xl bg-primary px-4 py-3 font-semibold text-primary-foreground shadow-lg shadow-primary/15" disabled={busy === "login"}>{busy === "login" ? "Signing in…" : "Sign in"}</button>
-        </form>
-      </div>
-    );
-  }
+  if (!session) return <Login email={email} password={password} setEmail={setEmail} setPassword={setPassword}
+    busy={busy} error={error} onSubmit={async (e: any) => {
+      e.preventDefault(); setBusy("login"); setError("");
+      try {
+        const r = await login({ data: { email, password } });
+        localStorage.setItem("orbitfs_panel_session", r.token);
+        localStorage.setItem("orbitfs_panel_user", JSON.stringify(r.user));
+        const s = { ...r.user, token: r.token }; setSession(s); setPassword(""); await load(s);
+      } catch (x: any) { setError(x.message || "Unable to sign in."); }
+      finally { setBusy(""); }
+    }} />;
 
-  const releases = tab === "base" ? data.base.releases : tab === "engine" ? data.engine.releases : [...data.base.releases, ...data.engine.releases];
+  const allReleases = [...(data.base.releases || []), ...(data.engine.releases || [])]
+    .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-2 sm:px-5">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-black text-primary-foreground">O</div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">OrbitFS Release Control</div>
-              <div className="hidden text-xs text-muted-foreground sm:block">Controlled release workspace</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-full border bg-card px-2.5 py-1.5 text-xs text-muted-foreground sm:flex"><i className={`h-1.5 w-1.5 rounded-full ${masterConnected ? "bg-emerald-400" : "bg-destructive"}`} /> {masterConnected ? "License Master connected" : "License Master offline"}</span>
-            <button className="rounded-lg border bg-card px-2.5 py-1.5 text-xs hover:bg-accent" onClick={() => load()}>{loading ? "Refreshing…" : "Refresh"}</button>
-            <button className="hidden rounded-lg border bg-card px-2.5 py-1.5 text-xs hover:bg-accent sm:block" onClick={signOut}>Sign out</button>
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto flex w-full max-w-[1600px] flex-col lg:flex-row">
-        <aside className="border-b lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:w-56 lg:shrink-0 lg:border-b-0 lg:border-r">
-          <nav className="flex gap-1 overflow-x-auto p-3 lg:flex-col lg:p-3">
-            <Nav active={tab === "overview"} onClick={() => setTab("overview")} label="Dashboard" detail="System overview" icon="⌂" />
-            <Nav active={tab === "base"} onClick={() => setTab("base")} label="Base Deployment" detail="orbitfs_base" icon="B" />
-            <Nav active={tab === "engine"} onClick={() => setTab("engine")} label="Engine Updates" detail="MCP · Apex · Studio" icon="E" />
-          </nav>
-          <div className="mx-3 hidden rounded-lg border bg-card p-3 lg:block">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Workflow</p>
-            <p className="mt-2 text-sm font-medium">Stage 1 · Release preparation</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">Detect changes, build the candidate, then hand it to License Master for validation.</p>
-          </div>
-        </aside>
-
-        <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-7">
-          <div className="mx-auto w-full max-w-[1400px]">
-            {error && <Alert tone="error">{error}</Alert>}
-            {notice && <Alert tone="success">{notice}</Alert>}
-            {run && <WorkflowConsole run={run} repo={runRepo} handoff={handoff} />}
-                        {tab === "overview" ? (
-              <Dashboard stats={stats} releases={releases} loading={loading} onBase={() => setTab("base")} onEngine={() => setTab("engine")} />
-            ) : (
-              <Composer type={tab} reviewOpen={reviewOpen} channels={availableChannels} {...{ version, setVersion, channel, setChannel, notes, setNotes, files, setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy }} onInspect={() => inspect(tab)} onStart={() => start(tab)} />
-            )}
+    <div className="min-h-screen bg-background">
+      <Header connected={masterConnected} loading={loading} onRefresh={() => load()} onSignOut={signOut} user={session} />
+      <div className="mx-auto flex min-h-[calc(100vh-57px)] max-w-[1680px]">
+        <Sidebar tab={tab} setTab={setTab} activeRun={!!run && !run.conclusion} />
+        <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 xl:px-8">
+          <div className="mx-auto max-w-[1440px] space-y-4">
+            {error && <Alert tone="error" onClose={() => setError("")}>{error}</Alert>}
+            {notice && <Alert tone="success" onClose={() => setNotice("")}>{notice}</Alert>}
+            {run && <LiveConsole run={run} repo={runRepo} handoff={handoff} />}
+            {tab === "overview" && <Dashboard stats={stats} releases={allReleases} onBase={() => { resetComposer(); setTab("base"); }}
+              onEngine={() => { resetComposer(); setTab("engine"); }} onActivity={() => setTab("activity")} />}
+            {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files,
+              setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
+              onInspect={() => inspect("base")} onStart={() => start("base")} />}
+            {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files,
+              setFiles, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
+              onInspect={() => inspect("engine")} onStart={() => start("engine")} />}
+            {tab === "activity" && <ActivityPage releases={allReleases} run={run} />}
+            {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
           </div>
         </main>
       </div>
     </div>
   );
+
+  function resetComposer() {
+    setVersion(""); setNotes(""); setFiles([]); setComponents([]); setReviewOpen(false);
+  }
 }
 
-function Nav({ active, onClick, label, detail, icon }: any) {
-  return <button onClick={onClick} className={`group flex min-w-max items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left transition hover:bg-accent lg:w-full ${active ? "bg-accent border-border shadow-sm" : "text-muted-foreground"}`}>
-    <span className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${active ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>{icon}</span>
-    <span className="hidden lg:block"><span className="block text-sm font-medium">{label}</span><span className="block text-[11px] text-muted-foreground">{detail}</span></span>
-    <span className="lg:hidden text-sm font-medium">{label}</span>
-  </button>;
+function composerProps(p: any) {
+  return p;
 }
 
-function Dashboard({ stats, releases, loading, onBase, onEngine }: any) {
-  return <section className="space-y-4">
-    <div className="flex flex-col justify-between gap-3 border-b pb-4 md:flex-row md:items-center">
-      <div>
-        <p className="text-sm font-medium text-primary">Release workspace</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Everything in one place.</h1>
-        <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">Prepare release candidates, inspect source changes, and launch the existing GitHub workflows without mixing Base and Engine operations.</p>
+function Login(p: any) {
+  return <div className="min-h-screen grid place-items-center p-5 bg-background">
+    <form onSubmit={p.onSubmit} className="w-full max-w-[420px] rounded-2xl border bg-card p-7 shadow-2xl">
+      <div className="mb-7">
+        <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-black">O</div>
+          <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-primary">OrbitFS</p><h1 className="text-xl font-semibold">Release Control</h1></div></div>
+        <p className="mt-5 text-sm leading-6 text-muted-foreground">Stage 1 release preparation. Inspect source, build the release handoff, and send the candidate to License Master.</p>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <button className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/10" onClick={onBase}>New Base release</button>
-        <button className="rounded-xl border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-accent" onClick={onEngine}>New Engine update</button>
+      <div className="space-y-3">
+        <Field label="Email"><input className="control" type="email" value={p.email} onChange={e => p.setEmail(e.target.value)} required /></Field>
+        <Field label="Password"><input className="control" type="password" value={p.password} onChange={e => p.setPassword(e.target.value)} required /></Field>
+      </div>
+      {p.error && <Alert tone="error">{p.error}</Alert>}
+      <button className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground" disabled={p.busy === "login"}>
+        {p.busy === "login" ? "Signing in…" : "Sign in"}
+      </button>
+    </form>
+  </div>;
+}
+
+function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
+  return <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
+    <div className="mx-auto flex h-14 max-w-[1680px] items-center justify-between px-4 sm:px-6 xl:px-8">
+      <div className="flex items-center gap-3 min-w-0"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-black text-primary-foreground">O</div>
+        <div className="min-w-0"><div className="truncate text-sm font-semibold">OrbitFS Release Control</div><div className="hidden text-[11px] text-muted-foreground sm:block">Stage 1 · Release preparation</div></div>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-xs sm:flex"><i className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-destructive"}`} />{connected ? "License Master" : "Master offline"}</div>
+        <button className="icon-button" title="Refresh" onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} size={15} /></button>
+        <div className="hidden border-l pl-2 text-right sm:block"><p className="text-xs font-medium">{user.display_name || user.email}</p><p className="text-[10px] text-muted-foreground">{user.role || "operator"}</p></div>
+        <button className="icon-button" title="Sign out" onClick={onSignOut}><UploadCloud className="rotate-180" size={15} /></button>
       </div>
     </div>
+  </header>;
+}
 
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border xl:grid-cols-4">
-      {Object.entries(stats).map(([key, value]) => <div key={key} className="bg-card p-3 sm:p-3.5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{key}</p>
-        <p className="mt-2 text-3xl font-semibold tracking-tight">{value as number}</p>
-      </div>)}
+function Sidebar({ tab, setTab, activeRun }: any) {
+  const items = [
+    ["overview", "Dashboard", "System overview", Activity],
+    ["base", "Base release", "orbitfs_base", Rocket],
+    ["engine", "Engine updates", "MCP · Apex · Studio", Layers3],
+    ["activity", "Releases & runs", "History and live jobs", Terminal],
+    ["settings", "Configuration", "Connections and sources", Settings2],
+  ] as const;
+  return <aside className="hidden w-60 shrink-0 border-r lg:block">
+    <div className="sticky top-14 p-3">
+      <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">Workspace</p>
+      <nav className="space-y-1">
+        {items.map(([id, label, detail, Icon]) => <button key={id} onClick={() => setTab(id as Tab)}
+          className={`nav-item ${tab === id ? "nav-item-active" : ""}`}>
+          <span className="nav-icon"><Icon size={15} /></span><span className="min-w-0"><b>{label}</b><small>{detail}</small></span>
+          {id === "activity" && activeRun && <span className="ml-auto h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
+        </button>)}
+      </nav>
+      <div className="mt-6 rounded-xl border bg-card/60 p-3">
+        <p className="flex items-center gap-2 text-xs font-semibold"><ShieldCheck size={14} /> Controlled pipeline</p>
+        <div className="mt-3 space-y-2 text-[11px] text-muted-foreground">
+          <StepLine n="1" text="Dev Panel prepares" active />
+          <StepLine n="2" text="License Master validates" />
+          <StepLine n="3" text="Billing Store reviews" />
+          <StepLine n="4" text="Customer release publishes" />
+        </div>
+      </div>
     </div>
+  </aside>;
+}
 
-    <div className="grid gap-px overflow-hidden rounded-lg border bg-border xl:grid-cols-2">
-      <QuickCard title="Base Deployment" subtitle="orbitfs_base" description="Create a Base candidate from the base-release branch and send it through the existing release workflow." action="Open Base" onClick={onBase} />
-      <QuickCard title="Engine Updates" subtitle="MCP · Apex · Studio" description="Inspect changed files, select Engine components, and publish an update through the UPDATE_RELEASE workflow." action="Open Engine" onClick={onEngine} />
+function StepLine({ n, text, active }: any) {
+  return <div className={`flex items-center gap-2 ${active ? "text-foreground" : ""}`}><span className="flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-bold">{n}</span>{text}</div>;
+}
+
+function Dashboard({ stats, releases, onBase, onEngine, onActivity }: any) {
+  const recent = releases.slice(0, 6);
+  return <section className="space-y-5">
+    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
+      <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">Developer workspace</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Prepare the next OrbitFS release.</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Stage 1 handles source inspection, change detection, release metadata, changelog context and workflow dispatch before License Master takes over technical validation.</p></div>
+      <div className="flex gap-2"><button className="button-primary" onClick={onBase}><Rocket size={15}/> New Base</button><button className="button-secondary" onClick={onEngine}><Layers3 size={15}/> New Engine update</button></div>
     </div>
-
-    <ReleaseList releases={releases} loading={loading} />
+    <div className="grid grid-cols-2 overflow-hidden rounded-xl border bg-border md:grid-cols-4">
+      <Metric label="Candidates" value={stats.candidates} detail="Awaiting validation/review" />
+      <Metric label="Validation failed" value={stats.validationFailed} detail="Needs attention" />
+      <Metric label="Ready" value={stats.ready} detail="Approved, not published" />
+      <Metric label="Published" value={stats.published} detail="Current release history" />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-[1.4fr_.9fr]">
+      <section className="release-surface p-4 sm:p-5">
+        <SectionHead icon={Zap} title="Release pipeline" detail="The handoff path for every product release." />
+        <div className="mt-5 grid gap-2 sm:grid-cols-4">
+          <PipelineStep icon={FileCode2} title="Inspect" text="Compare source against the last approved commit." />
+          <PipelineStep icon={ScrollText} title="Prepare" text="Build version, channel, notes and compatibility metadata." />
+          <PipelineStep icon={Github} title="Run" text="Dispatch the existing GitHub worker and watch every job." />
+          <PipelineStep icon={ShieldCheck} title="Handoff" text="License Master receives the candidate for validation." />
+        </div>
+      </section>
+      <section className="release-surface p-4 sm:p-5">
+        <SectionHead icon={Server} title="System status" detail="Live connections used by Stage 1." />
+        <div className="mt-4 space-y-2"><StatusRow label="License Master API" value="Connected" good /><StatusRow label="Base worker" value="V1-vercel-base" /><StatusRow label="Engine worker" value="V1-vercel-engine" /></div>
+      </section>
+    </div>
+    <section className="release-surface overflow-hidden">
+      <div className="flex items-center justify-between border-b p-4"><SectionHead icon={Clock3} title="Recent releases" detail="Latest candidates known to License Master."/><button className="text-xs font-medium text-primary" onClick={onActivity}>View all →</button></div>
+      <ReleaseTable releases={recent} />
+    </section>
   </section>;
 }
 
-function QuickCard({ title, subtitle, description, action, onClick }: any) {
-  return <div className="bg-card p-4 sm:p-4.5">
-    <div className="flex items-start justify-between gap-4">
-      <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">{subtitle}</p><h2 className="mt-1 text-xl font-semibold">{title}</h2></div>
-      <span className="rounded-xl bg-muted px-2.5 py-1.5 text-xs text-muted-foreground">Stage 1</span>
-    </div>
-    <p className="mt-2 text-sm leading-5 text-muted-foreground">{description}</p>
-    <button className="mt-5 rounded-lg border bg-background px-3.5 py-2 text-sm font-medium hover:bg-accent" onClick={onClick}>{action} →</button>
-  </div>;
+function Metric({ label, value, detail }: any) {
+  return <div className="border-r bg-card p-4 last:border-r-0"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p><p className="mt-1 text-[11px] text-muted-foreground">{detail}</p></div>;
+}
+
+function PipelineStep({ icon: Icon, title, text }: any) {
+  return <div className="rounded-lg border bg-background/40 p-3"><Icon size={16} className="text-primary"/><p className="mt-3 text-xs font-semibold">{title}</p><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{text}</p></div>;
 }
 
 function Composer(p: any) {
   const base = p.type === "base";
-  const can = Boolean(p.version.trim()) && (base || p.components.length > 0);
+  const canStart = Boolean(p.version.trim()) && (base || p.components.length > 0);
   return <section className="space-y-4">
-    <div className="flex flex-col justify-between gap-3 border-b pb-4 md:flex-row md:items-center">
-      <div><p className="text-sm font-medium text-primary">{base ? "Base Deployment" : "Engine Updates"}</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{base ? "Prepare a Base release." : "Prepare an Engine update."}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{base ? "Build a release candidate from the base-release branch." : "Detect source changes and choose the Engine components included in this update."}</p></div>
-      <span className="w-fit rounded-full border bg-card px-3 py-1.5 text-xs text-muted-foreground">{base ? "orbitfs_base · base-release" : "UPDATE_RELEASE"}</span>
+    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
+      <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">{base ? "Base release" : "Engine update"}</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{base ? "Prepare a Base release." : "Prepare an Engine update."}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{base ? "Package the current orbitfs_base source state through the existing Base worker." : "Choose affected components, inspect source changes and prepare the Engine handoff."}</p></div>
+      <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs"><GitBranch size={14}/><code>{base ? "base-release" : "UPDATE_RELEASE"}</code></div>
     </div>
-
-    <ReleaseInfo type={p.type} version={p.version} channel={p.channel} files={p.files} notes={p.notes} components={p.components} />
-
-    <div className="release-surface p-4 sm:p-5">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)} /></Field>
-        <Field label="Release channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}>{(p.channels?.length ? p.channels : ["stable"]).map((x: string) => <option key={x} value={x}>{x}</option>)}</select></Field>
-      </div>
-
-      {!base && <div className="mt-4 border-t pt-4">
-        <p className="text-sm font-medium">Components</p><p className="mt-1 text-xs text-muted-foreground">Choose what the Engine update contains.</p>
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">{["apex", "mcp", "studio"].map((c) => {
-          const selected = p.components.includes(c);
-          return <button type="button" key={c} onClick={() => p.setComponents((x: string[]) => x.includes(c) ? x.filter(y => y !== c) : [...x, c])} className={`rounded-xl border p-3 text-left transition ${selected ? "border-primary bg-primary/10" : "bg-background hover:bg-accent"}`}>
-            <span className="block text-sm font-semibold">{c.toUpperCase()}</span><span className="mt-0.5 block text-xs text-muted-foreground">{selected ? "Included in update" : "Not selected"}</span>
-          </button>;
-        })}</div>
-      </div>}
-
-      {!base && <div className="mt-5 grid gap-4 border-t pt-5 sm:grid-cols-2">
-        <Field label="Minimum Base version"><input className="control" value={p.minBase} onChange={e => p.setMinBase(e.target.value)} /></Field>
-        <Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e => p.setProtocol(e.target.value)} /></Field>
-      </div>}
-
-      <div className="mt-4 border-t pt-4"><Field label={base ? "Deployment notes" : "Developer notes"}><textarea className="control min-h-32 resize-y" value={p.notes} onChange={e => p.setNotes(e.target.value)} placeholder={base ? "Optional deployment context or operator notes." : "Optional notes. The changelog is generated automatically from these notes and source inspection."} /></Field></div>
-
-      <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
-        <button type="button" className="rounded-lg border bg-background px-4 py-2.5 text-sm font-medium hover:bg-accent" disabled={p.busy === "inspect"} onClick={p.onInspect}>{p.busy === "inspect" ? "Inspecting source…" : "Detect source changes"}</button>
-        <button type="button" className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/10" disabled={!can || p.busy === "start" || (!base && !p.reviewOpen)} onClick={p.onStart}>{p.busy === "start" ? "Starting workflow…" : base ? "Start Base deployment" : p.reviewOpen ? "Send reviewed update" : "Review generated changelog"}</button>
-      </div>
-      {!can && <p className="mt-2 text-right text-xs text-muted-foreground">{base ? "Enter a version to continue." : "Enter a version and select at least one component."}</p>}
-      {!base && can && !p.reviewOpen && <p className="mt-2 text-right text-xs text-muted-foreground">Detect changes first, then review the generated changelog before sending the update.</p>}
+    <div className="grid gap-4 xl:grid-cols-[1fr_330px]">
+      <section className="release-surface p-4 sm:p-5">
+        <SectionHead icon={Settings2} title="Release definition" detail="These values become the Stage 1 handoff inputs." />
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)}/></Field>
+          <Field label="Channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}>{(p.availableChannels?.length ? p.availableChannels : ["stable"]).map((x:string)=><option key={x}>{x}</option>)}</select></Field>
+        </div>
+        {!base && <><div className="mt-5 border-t pt-5"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Components</p><div className="mt-3 grid gap-2 sm:grid-cols-3">{["apex","mcp","studio"].map((c:string)=><button type="button" key={c} onClick={()=>p.setComponents((x:string[])=>x.includes(c)?x.filter(y=>y!==c):[...x,c])} className={`rounded-lg border p-3 text-left ${p.components.includes(c)?"border-primary bg-primary/10":"bg-background hover:bg-accent"}`}><span className="text-xs font-semibold">{c.toUpperCase()}</span><span className="mt-1 block text-[11px] text-muted-foreground">{p.components.includes(c)?"Included":"Not selected"}</span></button>)}</div></div>
+        <div className="mt-5 grid gap-4 border-t pt-5 sm:grid-cols-2"><Field label="Minimum Base version"><input className="control" value={p.minBase} onChange={e=>p.setMinBase(e.target.value)}/></Field><Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e=>p.setProtocol(e.target.value)}/></Field></div></>}
+        <div className="mt-5 border-t pt-5"><Field label={base ? "Release notes / operator context" : "Developer notes"}><textarea className="control min-h-32 resize-y" placeholder={base ? "Optional context for this Base deployment." : "Notes are included with the generated Engine release context."} value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
+        <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><button className="button-primary" disabled={!canStart||p.busy==="start"||(!base&&!p.reviewOpen)} onClick={p.onStart}>{p.busy==="start"?<Loader2 className="animate-spin" size={15}/>:<Rocket size={15}/>} {base?"Start Base workflow":p.reviewOpen?"Send reviewed update":"Inspect & review first"}</button></div>
+        {!canStart && <p className="mt-2 text-right text-[11px] text-muted-foreground">{base?"Enter a SemVer version to continue.":"Enter a version and select at least one component."}</p>}
+        {!base&&canStart&&!p.reviewOpen&&<p className="mt-2 text-right text-[11px] text-muted-foreground">The update is intentionally gated until source inspection has been reviewed.</p>}
+      </section>
+      <section className="release-surface p-4 sm:p-5">
+        <SectionHead icon={ScrollText} title={base?"Release summary":"Review gate"} detail={base?"What Stage 1 will hand to the worker.":"Confirm the generated source context before dispatch."}/>
+        <div className="mt-4 rounded-lg border bg-background/50 p-3 font-mono text-[11px] leading-6 text-muted-foreground">
+          <p><span className="text-foreground">product</span> = orbitfs_base</p><p><span className="text-foreground">type</span> = {base?"base":"update"}</p><p><span className="text-foreground">version</span> = {p.version||"not set"}</p><p><span className="text-foreground">channel</span> = {p.channel}</p><p><span className="text-foreground">changes</span> = {p.files.length}</p>{!base&&<><p><span className="text-foreground">components</span> = {p.components.join(", ")||"none"}</p><p><span className="text-foreground">minBase</span> = {p.minBase}</p><p><span className="text-foreground">protocol</span> = {p.protocol}</p></>}
+        </div>
+        <div className="mt-4 rounded-lg border p-3 text-xs"><p className="font-medium">Stage 1 does not publish customers.</p><p className="mt-1 leading-5 text-muted-foreground">It prepares and dispatches the candidate. License Master validates it; Billing Store handles the final publication workflow.</p></div>
+      </section>
     </div>
-
-    {p.files.length > 0 && <div className="release-surface p-4 sm:p-5">
-      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><h2 className="font-semibold">Detected changes</h2><p className="mt-1 text-sm text-muted-foreground">{p.files.length} files will be supplied to the workflow.</p></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Source inspection complete</span></div>
-      <div className="mt-3 overflow-hidden rounded-lg border"><div className="max-h-96 overflow-auto">{p.files.map((f: any) => <div key={f.filename} className="grid grid-cols-[55px_minmax(0,1fr)_80px] gap-2 border-b px-3 py-2.5 text-xs last:border-b-0 sm:grid-cols-[70px_minmax(0,1fr)_110px]"><span className="font-medium uppercase text-muted-foreground">{f.status}</span><code className="truncate">{f.filename}</code><span className="text-right text-muted-foreground">+{f.additions} −{f.deletions}</span></div>)}</div></div>
-    </div>}
+    {p.files.length>0&&<ChangeList files={p.files}/>}
   </section>;
 }
 
-function ReleaseInfo({ type, version, channel, files, notes, components }: any) {
-  const base = type === "base"; const count = files.length;
-  const generated = base
-    ? "OrbitFS Base deployment " + (version || "candidate") + "\n\nProduct: orbitfs_base\nSource: base-release\nChannel: " + channel + "\nDetected source changes: " + count + "\n\nThis deployment packages the current Base product state for the selected release channel. " + (count ? count + " source file" + (count === 1 ? "" : "s") + " changed since the last inspected release." : "No source changes were detected; the deployment can still be used to publish the current Base build as an intentional release.")
-    : "# OrbitFS Engine Update — " + (version || "candidate") + "\n\nRelease channel: " + channel + "\nComponents: " + (components.length ? components.map((x:string)=>x.toUpperCase()).join(", ") : "To be selected") + "\nDetected files: " + count + "\n\n" + (notes.trim() || "No developer notes supplied.") + "\n\n" + (count ? "The update includes " + count + " detected source file" + (count === 1 ? "" : "s") + " from the Engine source inspection." : "No source changes were detected. This release will still receive a generated changelog so the release record is complete.");
-  return <div className="release-surface p-4 sm:p-5">
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">{base ? "Deployment information" : "Generated changelog"}</p><h2 className="mt-1 text-lg font-semibold">{base ? "What this Base release contains" : "Review before sending"}</h2><p className="mt-1 text-sm text-muted-foreground">{base ? "A descriptive release record is created even when no source changes are detected." : "Review this generated changelog before the workflow is allowed to start."}</p></div>{!base && <span className="rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground">{count} detected</span>}</div>
-    <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border bg-background p-4 text-xs leading-6 text-muted-foreground">{generated}</pre>
-  </div>;
+function ChangeList({ files }: any) {
+  return <section className="release-surface overflow-hidden"><div className="flex items-center justify-between border-b p-4"><SectionHead icon={FileCode2} title="Detected source changes" detail={`${files.length} files returned by GitHub compare.`}/><span className="rounded-full bg-muted px-2 py-1 text-[10px]">INSPECTED</span></div><div className="max-h-[420px] overflow-auto">{files.map((f:any)=><div key={f.filename} className="grid grid-cols-[72px_minmax(0,1fr)_90px] gap-3 border-b px-4 py-2.5 text-xs last:border-b-0"><span className="font-semibold uppercase text-muted-foreground">{f.status}</span><code className="truncate">{f.filename}</code><span className="text-right text-muted-foreground">+{f.additions} −{f.deletions}</span></div>)}</div></section>;
 }
-function WorkflowConsole({ run, repo, handoff }: any) {
-  const jobs = run.jobs || [];
+
+function LiveConsole({ run, repo, handoff }: any) {
   const state = run.conclusion || run.status || "queued";
-  const tone = state === "success" ? "border-emerald-400/30 bg-emerald-400/10" : state === "failure" || state === "cancelled" ? "border-destructive/40 bg-destructive/10" : "border-primary/30 bg-primary/10";
-  const label = state === "success" ? "Release completed" : state === "failure" ? "Release failed" : state === "cancelled" ? "Release cancelled" : "Release in progress";
-  return <section className={`mb-6 rounded-2xl border p-4 shadow-sm sm:p-5 ${tone}`}>
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live release console</p><h2 className="mt-1 text-lg font-semibold">{label}</h2><p className="mt-1 text-xs text-muted-foreground">{repo} · run #{run.id} · {run.status}{run.conclusion ? ` · ${run.conclusion}` : ""}</p></div>
-      <a className="rounded-lg border bg-background px-3 py-2 text-xs font-medium hover:bg-accent" href={run.html_url || `https://github.com/${repo}/actions/runs/${run.id}`} target="_blank" rel="noreferrer">Open GitHub run →</a>
+  const terminal = ["success","failure","cancelled","skipped"].includes(state);
+  const jobs = run.jobs || [];
+  const icon = state==="success"?CheckCircle2:state==="failure"?XCircle:terminal?AlertCircle:Activity;
+  const Icon = icon;
+  return <section className={`release-surface overflow-hidden ${terminal?"":"ring-1 ring-primary/20"}`}>
+    <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><span className={`flex h-9 w-9 items-center justify-center rounded-lg ${state==="success"?"bg-emerald-400/10 text-emerald-400":state==="failure"?"bg-destructive/10 text-destructive":"bg-primary/10 text-primary"}`}><Icon size={18}/></span><div><div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Live release console</h2><span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase">{state}</span></div><p className="mt-1 text-[11px] text-muted-foreground">{repo} · run #{run.id}</p></div></div><a className="button-secondary" href={run.html_url || `https://github.com/${repo}/actions/runs/${run.id}`} target="_blank" rel="noreferrer"><Github size={14}/> Open GitHub run <ArrowRight size={13}/></a></div>
+    <div className="grid gap-4 p-4 xl:grid-cols-[1fr_320px]"><div className="space-y-2">{jobs.length?jobs.map((job:any)=><JobRow key={job.id} job={job}/>):<div className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground"><Loader2 size={16} className="mx-auto mb-2 animate-spin"/>Waiting for GitHub to report jobs…</div>}</div>
+      <div className="rounded-lg border bg-background/40 p-4"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Pipeline handoff</p><ConsoleStage label="GitHub workflow" state={terminal?state:"running"} /><ConsoleStage label="License Master candidate" state={handoff?"received":"waiting"} /><ConsoleStage label="Technical validation" state={handoff?.manifest?.validation?.status||"pending"} /><ConsoleStage label="Billing Store final review" state="next" /><p className="mt-4 text-[10px] leading-5 text-muted-foreground">Stage 1 stops at the License Master handoff. Publication is deliberately owned by the next stages.</p></div>
     </div>
-    <div className="mt-4 space-y-2">
-      {jobs.map((job: any) => {
-        const s = job.conclusion || job.status || "queued";
-        const cls = s === "success" ? "text-emerald-400" : s === "failure" ? "text-destructive" : "text-primary";
-        return <div key={job.id} className="rounded-lg border bg-background/60 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{job.name}</span><span className={`text-xs font-semibold uppercase ${cls}`}>{s}</span></div>
-          {job.steps?.length ? <div className="mt-2 grid gap-1 sm:grid-cols-2">{job.steps.map((step:any)=><div key={step.number || step.name} className="flex justify-between gap-2 text-xs text-muted-foreground"><span className="truncate">{step.name}</span><span className="shrink-0">{step.conclusion || step.status || "queued"}</span></div>)}</div> : null}
-        </div>;
-      })}
-      {!jobs.length && <p className="text-xs text-muted-foreground">Waiting for GitHub to report workflow jobs…</p>}
-    </div>
-    {handoff && <div className="mt-4 rounded-lg border bg-background/60 px-3 py-3 text-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">License Master handoff</span><span className="rounded-full bg-muted px-2 py-1">release {handoff.id}</span></div>
-      <p className="mt-1 text-muted-foreground">Candidate registered · review {handoff.review_status || "pending"} · validation {handoff.manifest?.validation?.status || "pending"}</p>
-    </div>}
+    {handoff&&<div className="border-t bg-muted/20 px-4 py-3 text-xs"><span className="font-semibold">License Master candidate #{handoff.id}</span><span className="ml-3 text-muted-foreground">review: {handoff.review_status||"pending"} · validation: {handoff.manifest?.validation?.status||"pending"}</span></div>}
   </section>;
 }
 
-function Field({ label, children }: any) { return <label className="block text-sm font-medium">{label}{children}</label>; }
-function Alert({ tone, children }: any) { return <div className={`mb-4 rounded-xl border px-4 py-3 text-sm ${tone === "error" ? "border-destructive/40 bg-destructive/10 text-foreground" : "border-emerald-400/30 bg-emerald-400/10 text-foreground"}`}>{children}</div>; }
+function JobRow({ job }: any) {
+  const s=job.conclusion||job.status||"queued";
+  return <div className="rounded-lg border bg-background/40 px-3 py-2.5"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><CircleDot size={13} className={s==="success"?"text-emerald-400":s==="failure"?"text-destructive":"text-primary"}/><span className="truncate text-xs font-medium">{job.name}</span></div><span className="text-[10px] font-semibold uppercase text-muted-foreground">{s}</span></div>{job.steps?.length?<div className="mt-2 grid gap-1 sm:grid-cols-2">{job.steps.map((x:any)=><div key={x.number||x.name} className="flex justify-between gap-3 text-[10px] text-muted-foreground"><span className="truncate">{x.name}</span><span className="shrink-0">{x.conclusion||x.status||"queued"}</span></div>)}</div>:null}</div>;
+}
 
-function ReleaseList({ releases, loading }: any) {
-  return <section className="release-surface p-4 sm:p-5">
-    <div className="flex items-end justify-between gap-3"><div><h2 className="text-lg font-semibold">Release queue</h2><p className="mt-1 text-sm text-muted-foreground">Candidates currently visible to License Master.</p></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">{loading ? "Refreshing…" : `${releases.length} total`}</span></div>
-    <div className="mt-3 overflow-hidden rounded-lg border">
-      {releases.slice(0, 20).map((r: any) => <div key={r.id} className="flex flex-col gap-3 border-b px-3 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0"><strong className="block truncate text-sm">{r.product_name || "OrbitFS"} {r.version}</strong><p className="mt-1 truncate text-xs text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref || "—"} · {(r.source_sha || "").slice(0, 8)}</p></div>
-        <div className="flex flex-wrap gap-1.5 text-xs"><span className="rounded-full bg-muted px-2 py-1">{r.status}</span><span className="rounded-full bg-muted px-2 py-1">review {r.review_status}</span><span className="rounded-full bg-muted px-2 py-1">validation {r.manifest?.validation?.status || "not run"}</span></div>
-      </div>)}
-      {!releases.length && <div className="py-8 text-center text-sm text-muted-foreground">No releases yet.</div>}
-    </div>
+function ConsoleStage({ label, state }: any) {
+  const done=["success","received","passed","approved"].includes(state);
+  const fail=["failure","failed"].includes(state);
+  return <div className="flex items-center gap-3 border-b py-2.5 last:border-b-0"><span className={`flex h-6 w-6 items-center justify-center rounded-full ${done?"bg-emerald-400/10 text-emerald-400":fail?"bg-destructive/10 text-destructive":"bg-muted text-muted-foreground"}`}>{done?<CheckCircle2 size={13}/>:fail?<XCircle size={13}/>:<Clock3 size={13}/>}</span><div className="min-w-0 flex-1"><p className="text-xs font-medium">{label}</p><p className="text-[10px] text-muted-foreground">{state}</p></div></div>;
+}
+
+function ActivityPage({ releases, run }: any) {
+  return <section className="space-y-4"><PageHead title="Releases & runs" detail="One place for release history and the currently monitored GitHub workflow."/><div className="release-surface overflow-hidden"><ReleaseTable releases={releases}/></div>{run&&<div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-xs"><p className="font-semibold">Active console: run #{run.id}</p><p className="mt-1 text-muted-foreground">Use the live console above for job-level progress.</p></div>}</section>;
+}
+
+function ReleaseTable({ releases }: any) {
+  return <div>{releases.map((r:any)=><div key={r.id} className="grid gap-3 border-b p-4 last:border-b-0 md:grid-cols-[1fr_120px_150px_160px] md:items-center"><div className="min-w-0"><p className="truncate text-sm font-medium">{r.product_name||"OrbitFS"} <span className="text-muted-foreground">v{r.version}</span></p><p className="mt-1 truncate text-[11px] text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref||"—"} · {(r.source_sha||"").slice(0,8)}</p></div><StatusPill text={r.status||"candidate"}/><StatusPill text={`review ${r.review_status||"pending"}`}/><StatusPill text={`validation ${r.manifest?.validation?.status||"not run"}`}/></div>)}{!releases.length&&<div className="p-10 text-center text-sm text-muted-foreground">No releases are currently visible.</div>}</div>;
+}
+
+function SettingsPage({ data, connected }: any) {
+  const base=data.base?.repositories?.base, engine=data.engine?.repositories?.engine;
+  return <section className="space-y-4"><PageHead title="Configuration" detail="Read-only runtime configuration visible to Stage 1. Secrets stay server-side."/>
+    <div className="grid gap-4 md:grid-cols-2"><ConfigCard title="License Master" icon={ShieldCheck} rows={[["API base",data.base?.masterUrl||"—"],["Connection",connected?"Connected":"Unavailable"],["Product","orbitfs_base"]]}/><ConfigCard title="Base worker" icon={Rocket} rows={[["Repository",base?.repo||"—"],["Ref",base?.ref||"—"],["Workflow",base?.workflow||"—"]]}/><ConfigCard title="Engine worker" icon={Layers3} rows={[["Repository",engine?.repo||"—"],["Ref",engine?.ref||"—"],["Workflow",engine?.workflow||"—"]]}/><ConfigCard title="Release channels" icon={Activity} rows={[["Available",[...(new Set([...(data.base.channels||[]),...(data.engine.channels||[])])].join(", ")||"—")],["Role","Stage 1 preparation"],["Publication","Not handled here"]]}/></div>
   </section>;
 }
+
+function ConfigCard({ title, icon: Icon, rows }: any) {
+  return <section className="release-surface p-4"><div className="flex items-center gap-2"><Icon size={15} className="text-primary"/><h2 className="text-sm font-semibold">{title}</h2></div><div className="mt-4 space-y-2">{rows.map(([k,v]:any)=><div key={k} className="flex items-start justify-between gap-4 border-b pb-2 text-[11px] last:border-b-0"><span className="text-muted-foreground">{k}</span><code className="max-w-[70%] break-all text-right">{v}</code></div>)}</div></section>;
+}
+
+function PageHead({ title, detail }: any) { return <div className="border-b pb-5"><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">OrbitFS Release Control</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">{title}</h1><p className="mt-2 text-sm text-muted-foreground">{detail}</p></div>; }
+function SectionHead({ icon: Icon, title, detail }: any) { return <div className="flex items-start gap-2.5"><span className="mt-0.5 text-primary"><Icon size={15}/></span><div><h2 className="text-sm font-semibold">{title}</h2><p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p></div></div>; }
+function StatusRow({ label, value, good }: any) { return <div className="flex items-center justify-between border-b py-2 text-xs last:border-b-0"><span className="text-muted-foreground">{label}</span><span className="flex items-center gap-1.5 font-medium">{good&&<i className="h-1.5 w-1.5 rounded-full bg-emerald-400"/>}{value}</span></div>; }
+function StatusPill({ text }: any) { return <span className="inline-flex w-fit rounded-full bg-muted px-2 py-1 text-[10px] font-medium">{text}</span>; }
+function Field({ label, children }: any) { return <label className="block text-xs font-medium">{label}{children}</label>; }
+function Alert({ tone, children, onClose }: any) { return <div className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs ${tone==="error"?"border-destructive/40 bg-destructive/10":"border-emerald-400/30 bg-emerald-400/10"}`}><span>{children}</span>{onClose&&<button className="opacity-60 hover:opacity-100" onClick={onClose}><XCircle size={14}/></button>}</div>; }
+
