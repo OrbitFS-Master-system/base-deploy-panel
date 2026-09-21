@@ -61,7 +61,7 @@ export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:
   licenseMaster(`/v1/release-channels?include_disabled=false`)
  ]);
  const availableChannels=Array.isArray(channels?.channels)?channels.channels.filter((x:any)=>x?.enabled===true).map((x:any)=>String(x.channel).trim().toLowerCase()).filter(Boolean):[];
- return {releases:releases?.releases||[],channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
+ const releaseRows=Array.isArray(releases?.releases)?releases.releases:[];\n const approved=releaseRows.filter((r:any)=>r?.review_status==="approved");\n const latestRelease=[...approved].sort((a:any,b:any)=>new Date(b.published_at||b.created_at||0).getTime()-new Date(a.published_at||a.created_at||0).getTime())[0]||null;\n return {releases:releaseRows,channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,latestRelease,needsInitialRelease:!latestRelease,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
 });
 
 export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";from?:string}})=>{
