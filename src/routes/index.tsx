@@ -33,6 +33,8 @@ function Index() {
   const [version, setVersion] = useState("");
   const [channel, setChannel] = useState("stable");
   const [notes, setNotes] = useState("");
+  const [changelogTemplate, setChangelogTemplate] = useState<"base_deployment_log" | "update_changelog">("base_deployment_log");
+  const [changelogDraft, setChangelogDraft] = useState("");
   const [files, setFiles] = useState<any[]>([]);
   const [commits, setCommits] = useState<any[]>([]);
   const [components, setComponents] = useState<string[]>([]);
@@ -152,6 +154,20 @@ function Index() {
       const r = await inspectSource({ data: { token: session.token, type, from: current } });
       setFiles(r.files || []);
       setCommits(r.commits || []);
+      setChangelogTemplate(type === "base" ? "base_deployment_log" : "update_changelog");
+      setChangelogDraft(buildChangelog(type, {
+        version,
+        channel,
+        files: r.files || [],
+        commits: r.commits || [],
+        notes,
+        components,
+        minBase,
+        protocol,
+        repo: r.repo,
+        ref: r.ref,
+        head: r.head,
+      }));
       setReviewOpen(type === "engine");
       setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected.`);
     } catch (x: any) {
@@ -163,14 +179,14 @@ function Index() {
     setBusy("start"); setError(""); setNotice("");
     try {
       const r = await startRelease({
-        data: { token: session.token, type, version, channel, notes, files, components,
-          minimumBaseVersion: minBase, protocol }
+        data: { token: session.token, type, version, channel, notes: changelogDraft, files, components,
+          minimumBaseVersion: minBase, protocol, changelogTemplate }
       });
       setReviewOpen(false);
       setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
       setRunRepo(r.repo); setRunVersion(version); setRunChannel(channel); setHandoff(null);
       setNotice(r.runId ? `GitHub workflow started · run #${r.runId}` : "Workflow dispatched. Waiting for GitHub run details.");
-      setVersion(""); setNotes(""); setFiles([]); setCommits([]);
+      setVersion(""); setNotes(""); setChangelogDraft(""); setChangelogTemplate("base_deployment_log"); setFiles([]); setCommits([]);
       await load();
       setTab("activity");
     } catch (x: any) {
@@ -206,10 +222,12 @@ function Index() {
             {tab === "overview" && <Dashboard stats={stats} releases={allReleases} onBase={() => { resetComposer(); setTab("base"); }}
               onEngine={() => { resetComposer(); setTab("engine"); }} onActivity={() => setTab("activity")} />}
             {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
-              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
+              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
+              changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("base")} onStart={() => start("base")} />}
             {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
-              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
+              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
+              changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("engine")} onStart={() => start("engine")} />}
             {tab === "activity" && <ActivityPage releases={allReleases} run={run} />}
             {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
@@ -347,6 +365,7 @@ function PipelineStep({ icon: Icon, title, text }: any) {
 function Composer(p: any) {
   const base = p.type === "base";
   const canStart = Boolean(p.version.trim()) && (base || p.components.length > 0);
+  const templateLabel = base ? "Base Deployment Log" : "Update Changelog";
   return <section className="space-y-4">
     <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
       <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">{base ? "Base release" : "Engine update"}</p>
@@ -363,7 +382,16 @@ function Composer(p: any) {
         </div>
         {!base && <><div className="mt-5 border-t pt-5"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Components</p><div className="mt-3 grid gap-2 sm:grid-cols-3">{["apex","mcp","studio"].map((c:string)=><button type="button" key={c} onClick={()=>p.setComponents((x:string[])=>x.includes(c)?x.filter(y=>y!==c):[...x,c])} className={`rounded-lg border p-3 text-left ${p.components.includes(c)?"border-primary bg-primary/10":"bg-background hover:bg-accent"}`}><span className="text-xs font-semibold">{c.toUpperCase()}</span><span className="mt-1 block text-[11px] text-muted-foreground">{p.components.includes(c)?"Included":"Not selected"}</span></button>)}</div></div>
         <div className="mt-5 grid gap-4 border-t pt-5 sm:grid-cols-2"><Field label="Minimum Base version"><input className="control" value={p.minBase} onChange={e=>p.setMinBase(e.target.value)}/></Field><Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e=>p.setProtocol(e.target.value)}/></Field></div></>}
-        <div className="mt-5 border-t pt-5"><Field label={base ? "Release notes / operator context" : "Developer notes"}><textarea className="control min-h-32 resize-y" placeholder={base ? "Optional context for this Base deployment." : "Notes are included with the generated Engine release context."} value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
+        <div className="mt-5 border-t pt-5">
+          <Field label="Changelog template">
+            <select className="control" value={p.changelogTemplate} onChange={e => p.setChangelogTemplate(e.target.value)}>
+              <option value="base_deployment_log">Base Deployment Log</option>
+              <option value="update_changelog">Update Changelog</option>
+            </select>
+          </Field>
+          <p className="mt-1 text-[11px] text-muted-foreground">The template is filled automatically after source inspection. You can edit the completed changelog before sending it.</p>
+        </div>
+        <div className="mt-5 border-t pt-5"><Field label={base ? "Additional operator notes" : "Additional developer notes"}><textarea className="control min-h-24 resize-y" placeholder="Optional extra context. It will be included when the changelog is generated." value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
         <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><button className="button-primary" disabled={!canStart||p.busy==="start"||(!base&&!p.reviewOpen)} onClick={p.onStart}>{p.busy==="start"?<Loader2 className="animate-spin" size={15}/>:<Rocket size={15}/>} {base?"Start Base workflow":p.reviewOpen?"Send reviewed update":"Inspect & review first"}</button></div>
         {!canStart && <p className="mt-2 text-right text-[11px] text-muted-foreground">{base?"Enter a SemVer version to continue.":"Enter a version and select at least one component."}</p>}
         {!base&&canStart&&!p.reviewOpen&&<p className="mt-2 text-right text-[11px] text-muted-foreground">The update is intentionally gated until source inspection has been reviewed.</p>}
@@ -376,32 +404,75 @@ function Composer(p: any) {
         <div className="mt-4 rounded-lg border p-3 text-xs"><p className="font-medium">Stage 1 does not publish customers.</p><p className="mt-1 leading-5 text-muted-foreground">It prepares and dispatches the candidate. License Master validates it; Billing Store handles the final publication workflow.</p></div>
       </section>
     </div>
-    {(p.commits?.length > 0 || p.files.length > 0) && <AutoChangelog commits={p.commits || []} files={p.files || []} notes={p.notes} />}
+    <ChangelogEditor type={p.type} template={p.changelogTemplate} value={p.changelogDraft} onChange={p.setChangelogDraft} commits={p.commits || []} files={p.files || []} />
   </section>;
 }
 
-function AutoChangelog({ commits, files, notes }: any) {
-  const subjects = (commits || [])
-    .map((c:any) => String(c.subject || c.message || "").trim())
-    .filter(Boolean)
-    .slice(0, 20);
+function buildChangelog(type: ReleaseType, data: any) {
+  const base = type === "base";
+  const commits = (data.commits || []).map((c:any) => String(c.subject || c.message || "").trim()).filter(Boolean).slice(0, 20);
+  const files = data.files || [];
+  const fileLines = files.length ? files.map((f:any) => `• ${f.filename} (${f.status}, +${f.additions || 0} / -${f.deletions || 0})`).join("\n") : "No source changes were detected against the previous approved source commit.";
+  const commitLines = commits.length ? commits.map((s:string) => `• ${s}`).join("\n") : "No commits were returned for this source range.";
+  const changes = files.length
+    ? `This ${base ? "deployment" : "update"} contains ${files.length} changed source file${files.length === 1 ? "" : "s"}.${base ? "" : ` The selected components are ${(data.components || []).map((x:string)=>x.toUpperCase()).join(", ") || "not specified"}.`}`
+    : base
+      ? "No source changes were detected against the previous approved source commit. This is still a complete Base deployment: the current Base source state will be packaged and go through the normal checks."
+      : "No source changes were detected. An Engine update requires source changes, so this release cannot be dispatched until changes are available.";
+  const checks = [
+    "✓ Source checked",
+    "✓ Change detection completed",
+    base ? "✓ Deployment package will be created" : "✓ Update package will be created",
+    "✓ Package integrity will be checked",
+    "✓ License Master technical validation will run",
+  ].join("\n");
+  const summary = base
+    ? "This is a complete OrbitFS Base deployment. The current Base system will be packaged and sent through the normal technical checks."
+    : "This is an OrbitFS system update. It contains changes intended to be applied to an existing OrbitFS Base installation.";
+  return `# OrbitFS ${base ? "Base Deployment" : "Update"} — v${data.version || "VERSION"}
+
+## What is this?
+${summary}
+
+## What's changing?
+${changes}
+
+## Main changes
+${commitLines}
+
+## What was included?
+${checks}
+
+## Compatibility
+${base ? "This is a complete Base deployment; normal Base deployment compatibility checks apply." : `Minimum Base version: ${data.minBase || "1.0.0"}\nMinimum updater/deployer protocol: ${data.protocol || "1"}`}
+
+## What happens next?
+The release will be sent to License Master for technical validation. If those checks pass, it moves to the next review stage.
+
+## Changed files
+${fileLines}
+
+## Notes
+${data.notes?.trim() || "No additional operator notes."}
+`;
+}
+
+function ChangelogEditor({ type, template, value, onChange, commits, files }: any) {
+  const label = type === "base" ? "Base Deployment Log" : "Update Changelog";
   return <section className="release-surface overflow-hidden">
-    <div className="flex items-center justify-between border-b p-4">
-      <SectionHead icon={ScrollText} title="Automatic changelog" detail="Generated from the inspected Git history and source diff." />
-      <span className="rounded-full bg-muted px-2 py-1 text-[10px]">AUTO</span>
+    <div className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+      <SectionHead icon={ScrollText} title={label} detail="Automatically filled from the inspected source. Edit it before the release is sent." />
+      <span className="rounded-full bg-muted px-2 py-1 text-[10px]">{template === "base_deployment_log" ? "BASE TEMPLATE" : "UPDATE TEMPLATE"}</span>
     </div>
-    <div className="grid gap-4 p-4 md:grid-cols-[1fr_220px]">
-      <div>
-        {subjects.length ? <div className="space-y-1.5">{subjects.map((s:string,i:number)=><p key={i} className="text-xs leading-5">• {s}</p>)}</div>
-          : <p className="text-xs text-muted-foreground">No commit subjects were returned for this source range. The worker will record the baseline/diff information.</p>}
-        {notes?.trim() && <div className="mt-4 rounded-lg border bg-background/50 p-3"><p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Operator notes</p><p className="mt-1 whitespace-pre-wrap text-xs leading-5">{notes.trim()}</p></div>}
-      </div>
+    <div className="grid gap-4 p-4 xl:grid-cols-[1fr_250px]">
+      <textarea className="control min-h-[520px] resize-y font-mono text-xs leading-5" value={value || ""} onChange={e => onChange(e.target.value)} placeholder="Inspect source to generate the changelog." />
       <div className="rounded-lg border bg-background/50 p-3 text-xs">
-        <p className="font-semibold">Source summary</p>
+        <p className="font-semibold">Review before sending</p>
         <div className="mt-3 space-y-2 text-muted-foreground">
-          <p className="flex justify-between gap-3"><span>Commits</span><span className="text-foreground">{commits.length}</span></p>
-          <p className="flex justify-between gap-3"><span>Changed files</span><span className="text-foreground">{files.length}</span></p>
-          <p className="pt-2 text-[10px] leading-5">This preview is informational; the existing V1 worker generates the packaged release changelog used by License Master.</p>
+          <p>Commits: <span className="text-foreground">{commits.length}</span></p>
+          <p>Changed files: <span className="text-foreground">{files.length}</span></p>
+          <p className="pt-2 leading-5">This text is the release changelog handed to the worker. Your edits are preserved.</p>
+          <p className="pt-2 leading-5">For Base deployments, the changelog is generated even when no changes are detected.</p>
         </div>
       </div>
     </div>
