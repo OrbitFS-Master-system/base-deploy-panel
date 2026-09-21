@@ -121,6 +121,10 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
    }));
  }
 
+ if (data.type === "engine" && previousSourceCommit && previousSourceCommit === head) {
+   throw new Error("No source changes detected since the last approved Engine release.");
+ }
+
  const selectedComponents = data.type === "engine"
    ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["apex","mcp","studio"].includes(x)))]
    : ["base"];
