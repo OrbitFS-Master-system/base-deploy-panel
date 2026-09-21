@@ -178,9 +178,14 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
 });
 
 async function requestJson(url:string,init:RequestInit={}){
- const r=await fetch(url,{...init,cache:"no-store",headers:{accept:"application/json",...(init.body?{"content-type":"application/json"}:{}),...(init.headers||{})}});
+ let r:Response;
+ try {
+   r=await fetch(url,{...init,cache:"no-store",headers:{accept:"application/json",...(init.body?{"content-type":"application/json"}:{}),...(init.headers||{})}});
+ } catch (error:any) {
+   throw new Error(`Network request failed: ${url} · ${error?.message || "fetch failed"}`);
+ }
  const text=await r.text();let body:any=null;try{body=text?JSON.parse(text):null}catch{body={error:text||r.statusText}}
- if(!r.ok)throw new Error(body?.error||body?.message||`Request failed (${r.status})`);
+ if(!r.ok)throw new Error(body?.error||body?.message||`Request failed (${r.status}) at ${url}`);
  return body;
 }
 async function github(path:string,init:RequestInit={}){
