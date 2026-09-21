@@ -96,6 +96,11 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const channelEnabled=Array.isArray(channels?.channels)&&channels.channels.some((x:any)=>String(x.channel).trim().toLowerCase()===channel&&x.enabled===true);
  if(!channelEnabled)throw new Error("Release channel is not configured or is disabled in License Master: "+channel);
  const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF,workflow=data.type==="base"?BASE_WORKFLOW:ENGINE_WORKFLOW;
+ if (data.type === "engine") {
+  const baseResult = await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`);
+  const publishedBase = (baseResult?.releases || []).some((r:any) => r.status === "published" && r.review_status === "approved");
+  if (!publishedBase) throw new Error("A published, technically approved OrbitFS Base release is required before creating Engine updates.");
+ }
  const previousResult = data.type === "base"
   ? await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`)
   : await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=update&include_archived=false`);
