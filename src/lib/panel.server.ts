@@ -12,6 +12,7 @@ const ENGINE_WORKFLOW=process.env.ENGINE_RELEASE_WORKFLOW||"publish-engine-relea
 const required=(name:string)=>{const v=process.env[name];if(!v)throw new Error(`Missing server environment variable: ${name}`);return v};
 const masterUrl=()=> (process.env.LICENSE_MASTER_URL||"https://incendiarynetworks.cc/api").replace(/\/+$/,"");
 const normalizeChannel=(value:string)=>String(value||"stable").trim().toLowerCase();
+const allowedRepos=new Set([BASE_REPO,ENGINE_REPO]);
 
 type PanelUser={id:string;email:string;display_name:string;role:string};
 const sessionSecret=()=>required("APP_SESSION_SECRET");
@@ -76,7 +77,7 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
 export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string}})=>{  readSession(data.token);  const product="orbitfs_base";  const releaseType=data.type==="base"?"base":"update";  const channel=normalizeChannel(data.channel);  const result=await licenseMaster(`/v1/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`);  const release=(result?.releases||[]).find((r:any)=>String(r.version)===String(data.version)&&!r.archived_at);  return {release:release||null,product,releaseType,channel};});export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{
   readSession(data.token);
   const repo=String(data.repo||"").trim();
-  if(!repo.includes("/"))throw new Error("Invalid release repository");
+  if(!allowedRepos.has(repo))throw new Error("Release repository is not allowed");
   if(data.runId){
     const run=await github("/repos/"+repo+"/actions/runs/"+data.runId);
     const jobs=await github("/repos/"+repo+"/actions/runs/"+data.runId+"/jobs?per_page=100");
@@ -101,6 +102,29 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const previousRelease = (previousResult?.releases || [])
   .filter((r:any) => r.review_status === "approved" && r.source_sha)
   .sort((a:any,b:any) => new Date(b.published_at || b.created_at || 0).getTime() - new Date(a.published_at || a.created_at || 0).getTime())[0];
+
+ // Stage 1 is authoritative about the source snapshot sent to the worker.
+ // Do not trust stale browser state for changed files or the previous commit.
+ const branch = await github(`/repos/${repo}/git/ref/heads/${encodeURIComponent(ref)}`);
+ const head = branch?.object?.sha;
+ if (!head) throw new Error(`Could not resolve ${repo}@${ref}`);
+ const previousSourceCommit = previousRelease?.source_sha || "";
+ let detectedFiles:any[] = [];
+ if (previousSourceCommit && previousSourceCommit !== head) {
+   const cmp = await github(`/repos/${repo}/compare/${encodeURIComponent(previousSourceCommit)}...${encodeURIComponent(head)}`);
+   detectedFiles = (cmp?.files || []).map((f:any)=>({
+     filename:f.filename,
+     status:f.status,
+     additions:f.additions,
+     deletions:f.deletions,
+     changes:f.changes,
+   }));
+ }
+
+ const selectedComponents = data.type === "engine"
+   ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["apex","mcp","studio"].includes(x)))]
+   : ["base"];
+
  const releaseRecord = {
   format: "orbitfs-release-record-v1",
   releaseType: data.type === "base" ? "base" : "update",
@@ -109,10 +133,10 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   channel,
   sourceRepository: repo,
   sourceRef: ref,
-  previousSourceCommit: previousRelease?.source_sha || null,
-  detectedSourceChanges: (data.files || []).length,
-  changedFiles: data.files || [],
-  components: data.type === "base" ? ["base"] : data.components,
+  previousSourceCommit: previousSourceCommit || null,
+  detectedSourceChanges: detectedFiles.length,
+  changedFiles: detectedFiles,
+  components: selectedComponents,
   minimumBaseVersion: data.type === "engine" ? (data.minimumBaseVersion || "1.0.0") : null,
   minimumDeployerProtocol: data.type === "engine" ? (data.protocol || "1") : null,
   notes: data.notes.trim(),
@@ -122,11 +146,11 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   version,
   channel,
   notes:data.notes.trim(),
-  changed_files:JSON.stringify(data.files||[]),
-  previous_source_commit:previousRelease?.source_sha || "",
+  changed_files:JSON.stringify(detectedFiles),
+  previous_source_commit:previousSourceCommit,
  };
  if(data.type==="base") inputs.release_record=JSON.stringify(releaseRecord);
- if(data.type==="engine")Object.assign(inputs,{apex:String(data.components.includes("apex")),mcp:String(data.components.includes("mcp")),studio:String(data.components.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
+ if(data.type==="engine")Object.assign(inputs,{apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
  const dispatchedAt=Date.now();
   await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
   let runId:number|undefined;
