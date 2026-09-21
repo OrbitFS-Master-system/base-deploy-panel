@@ -206,10 +206,10 @@ function Index() {
             {tab === "overview" && <Dashboard stats={stats} releases={allReleases} onBase={() => { resetComposer(); setTab("base"); }}
               onEngine={() => { resetComposer(); setTab("engine"); }} onActivity={() => setTab("activity")} />}
             {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
-              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
+              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels, initialRelease: data.base?.needsInitialRelease })}
               onInspect={() => inspect("base")} onStart={() => start("base")} />}
             {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
-              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels })}
+              setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels, initialRelease: data.engine?.needsInitialRelease })}
               onInspect={() => inspect("engine")} onStart={() => start("engine")} />}
             {tab === "activity" && <ActivityPage releases={allReleases} run={run} />}
             {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
@@ -357,7 +357,7 @@ function Composer(p: any) {
     <div className="grid gap-4 xl:grid-cols-[1fr_330px]">
       <section className="release-surface p-4 sm:p-5">
         <SectionHead icon={Settings2} title="Release definition" detail="These values become the Stage 1 handoff inputs." />
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        {base && p.initialRelease && <div className="mt-5 rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs"><p className="font-semibold">Initial official Base release</p><p className="mt-1 leading-5 text-muted-foreground">No approved Base release exists for this channel yet. This will establish the full Base deployment baseline; later Base changes are handled through the Engine updater.</p></div>}\n        <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)}/></Field>
           <Field label="Channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}>{(p.availableChannels?.length ? p.availableChannels : ["stable"]).map((x:string)=><option key={x}>{x}</option>)}</select></Field>
         </div>
