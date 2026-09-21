@@ -34,6 +34,7 @@ function Index() {
   const [channel, setChannel] = useState("stable");
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState<any[]>([]);
+  const [commits, setCommits] = useState<any[]>([]);
   const [components, setComponents] = useState<string[]>([]);
   const [minBase, setMinBase] = useState("1.0.0");
   const [protocol, setProtocol] = useState("1");
@@ -150,6 +151,7 @@ function Index() {
       const current = data[type].releases?.find((r: any) => r.review_status === "approved" && r.source_sha)?.source_sha;
       const r = await inspectSource({ data: { token: session.token, type, from: current } });
       setFiles(r.files || []);
+      setCommits(r.commits || []);
       setReviewOpen(type === "engine");
       setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected.`);
     } catch (x: any) {
@@ -168,7 +170,7 @@ function Index() {
       setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
       setRunRepo(r.repo); setRunVersion(version); setRunChannel(channel); setHandoff(null);
       setNotice(r.runId ? `GitHub workflow started · run #${r.runId}` : "Workflow dispatched. Waiting for GitHub run details.");
-      setVersion(""); setNotes(""); setFiles([]);
+      setVersion(""); setNotes(""); setFiles([]); setCommits([]);
       await load();
       setTab("activity");
     } catch (x: any) {
@@ -344,6 +346,7 @@ function PipelineStep({ icon: Icon, title, text }: any) {
 
 function Composer(p: any) {
   const base = p.type === "base";
+  const changelog = (p.commits || []).map((c:any) => String(c.message || c.subject || "").trim()).filter(Boolean);
   const canStart = Boolean(p.version.trim()) && (base || p.components.length > 0);
   return <section className="space-y-4">
     <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
@@ -374,7 +377,35 @@ function Composer(p: any) {
         <div className="mt-4 rounded-lg border p-3 text-xs"><p className="font-medium">Stage 1 does not publish customers.</p><p className="mt-1 leading-5 text-muted-foreground">It prepares and dispatches the candidate. License Master validates it; Billing Store handles the final publication workflow.</p></div>
       </section>
     </div>
-    {p.files.length>0&&<ChangeList files={p.files}/>}
+    {(p.commits?.length > 0 || p.files.length > 0) && <AutoChangelog commits={p.commits || []} files={p.files || []} notes={p.notes} />}
+  </section>;
+}
+
+function AutoChangelog({ commits, files, notes }: any) {
+  const subjects = (commits || [])
+    .map((c:any) => String(c.subject || c.message || "").trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  return <section className="release-surface overflow-hidden">
+    <div className="flex items-center justify-between border-b p-4">
+      <SectionHead icon={ScrollText} title="Automatic changelog" detail="Generated from the inspected Git history and source diff." />
+      <span className="rounded-full bg-muted px-2 py-1 text-[10px]">AUTO</span>
+    </div>
+    <div className="grid gap-4 p-4 md:grid-cols-[1fr_220px]">
+      <div>
+        {subjects.length ? <div className="space-y-1.5">{subjects.map((s:string,i:number)=><p key={i} className="text-xs leading-5">• {s}</p>)}</div>
+          : <p className="text-xs text-muted-foreground">No commit subjects were returned for this source range. The worker will record the baseline/diff information.</p>}
+        {notes?.trim() && <div className="mt-4 rounded-lg border bg-background/50 p-3"><p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Operator notes</p><p className="mt-1 whitespace-pre-wrap text-xs leading-5">{notes.trim()}</p></div>}
+      </div>
+      <div className="rounded-lg border bg-background/50 p-3 text-xs">
+        <p className="font-semibold">Source summary</p>
+        <div className="mt-3 space-y-2 text-muted-foreground">
+          <p className="flex justify-between gap-3"><span>Commits</span><span className="text-foreground">{commits.length}</span></p>
+          <p className="flex justify-between gap-3"><span>Changed files</span><span className="text-foreground">{files.length}</span></p>
+          <p className="pt-2 text-[10px] leading-5">This preview is informational; the existing V1 worker generates the packaged release changelog used by License Master.</p>
+        </div>
+      </div>
+    </div>
   </section>;
 }
 
