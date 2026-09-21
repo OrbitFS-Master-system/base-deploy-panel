@@ -86,12 +86,14 @@ export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({da
   throw new Error("Release workflow run is not available yet");
 });
 
-export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string;notes:string;files:any[];components:string[];minimumBaseVersion:string;protocol:string}})=>{
+export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string;notes:string;files:any[];components:string[];minimumBaseVersion:string;protocol:string;changelogTemplate:string}})=>{
  readSession(data.token);
  const version=data.version.trim();
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
  if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one Engine component.");
  const channel=normalizeChannel(data.channel);
+ const expectedTemplate = data.type === "base" ? "base_deployment_log" : "update_changelog";
+ if (data.changelogTemplate !== expectedTemplate) throw new Error(`Use the ${expectedTemplate === "base_deployment_log" ? "Base Deployment Log" : "Update Changelog"} template for this release type.`);
  const channels=await licenseMaster(`/v1/release-channels?include_disabled=false`);
  const channelEnabled=Array.isArray(channels?.channels)&&channels.channels.some((x:any)=>String(x.channel).trim().toLowerCase()===channel&&x.enabled===true);
  if(!channelEnabled)throw new Error("Release channel is not configured or is disabled in License Master: "+channel);
@@ -149,6 +151,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   minimumBaseVersion: data.type === "engine" ? (data.minimumBaseVersion || "1.0.0") : null,
   minimumDeployerProtocol: data.type === "engine" ? (data.protocol || "1") : null,
   notes: data.notes.trim(),
+  changelogTemplate: data.changelogTemplate,
   generatedAt: new Date().toISOString(),
  };
  const inputs:any={
