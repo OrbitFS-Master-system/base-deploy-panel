@@ -185,9 +185,9 @@ function Index() {
       setReviewOpen(false);
       setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
       setRunRepo(r.repo); setRunVersion(version); setRunChannel(channel); setHandoff(null);
-      setNotice(r.runId ? `GitHub workflow started · run #${r.runId}` : "Workflow dispatched. Waiting for GitHub run details.");
+      setNotice(r.runId ? `Release sent · GitHub workflow run #${r.runId} started.` : "Release sent to GitHub. Waiting for the workflow run to appear.");
       setVersion(""); setNotes(""); setChangelogDraft(""); setChangelogTemplate("base_deployment_log"); setFiles([]); setCommits([]);
-      await load();
+      try { await load(session, true); } catch {}
       setTab("activity");
     } catch (x: any) {
       setError(x.message || "Unable to start release.");
@@ -392,7 +392,7 @@ function Composer(p: any) {
           <p className="mt-1 text-[11px] text-muted-foreground">The template is filled automatically after source inspection. You can edit the completed changelog before sending it.</p>
         </div>
         <div className="mt-5 border-t pt-5"><Field label={base ? "Additional operator notes" : "Additional developer notes"}><textarea className="control min-h-24 resize-y" placeholder="Optional extra context. It will be included when the changelog is generated." value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
-        <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><button className="button-primary" disabled={!canStart||p.busy==="start"||!p.reviewOpen||!p.changelogDraft.trim()} onClick={p.onStart}>{p.busy==="start"?<Loader2 className="animate-spin" size={15}/>:<Rocket size={15}/>} {p.reviewOpen ? (base ? "Send reviewed Base release" : "Send reviewed update") : "Inspect & review first"}</button></div>
+        <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><span className="text-[11px] text-muted-foreground">Inspect first. Review the generated changelog below. Sending happens after the review.</span></div>
         {!canStart && <p className="mt-2 text-right text-[11px] text-muted-foreground">{base?"Enter a SemVer version to continue.":"Enter a version and select at least one component."}</p>}
         {canStart&&!p.reviewOpen&&<p className="mt-2 text-right text-[11px] text-muted-foreground">Inspect the source first. The release stays gated until the generated changelog has been reviewed.</p>}
       </section>
@@ -404,7 +404,7 @@ function Composer(p: any) {
         <div className="mt-4 rounded-lg border p-3 text-xs"><p className="font-medium">Stage 1 does not publish customers.</p><p className="mt-1 leading-5 text-muted-foreground">It prepares and dispatches the candidate. License Master validates it; Billing Store handles the final publication workflow.</p></div>
       </section>
     </div>
-    <ChangelogEditor type={p.type} template={p.changelogTemplate} value={p.changelogDraft} onChange={p.setChangelogDraft} commits={p.commits || []} files={p.files || []} />
+    <ChangelogEditor type={p.type} template={p.changelogTemplate} value={p.changelogDraft} onChange={p.setChangelogDraft} commits={p.commits || []} files={p.files || []} canStart={canStart} reviewOpen={p.reviewOpen} busy={p.busy} onStart={p.onStart} />
   </section>;
 }
 
@@ -457,11 +457,12 @@ ${data.notes?.trim() || "No additional operator notes."}
 `;
 }
 
-function ChangelogEditor({ type, template, value, onChange, commits, files }: any) {
+function ChangelogEditor({ type, template, value, onChange, commits, files, canStart, reviewOpen, busy, onStart }: any) {
   const label = type === "base" ? "Base Deployment Log" : "Update Changelog";
+  const ready = Boolean(canStart && reviewOpen && value?.trim());
   return <section className="release-surface overflow-hidden">
     <div className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
-      <SectionHead icon={ScrollText} title={label} detail="Automatically filled from the inspected source. Edit it before the release is sent." />
+      <SectionHead icon={ScrollText} title={label} detail="Automatically filled from the inspected source. Review or edit it here before sending." />
       <span className="rounded-full bg-muted px-2 py-1 text-[10px]">{template === "base_deployment_log" ? "BASE TEMPLATE" : "UPDATE TEMPLATE"}</span>
     </div>
     <div className="grid gap-4 p-4 xl:grid-cols-[1fr_250px]">
@@ -469,12 +470,22 @@ function ChangelogEditor({ type, template, value, onChange, commits, files }: an
       <div className="rounded-lg border bg-background/50 p-3 text-xs">
         <p className="font-semibold">Review before sending</p>
         <div className="mt-3 space-y-2 text-muted-foreground">
-          <p>Commits: <span className="text-foreground">{commits.length}</span></p>
+          <p>Source commits: <span className="text-foreground">{commits.length}</span></p>
           <p>Changed files: <span className="text-foreground">{files.length}</span></p>
-          <p className="pt-2 leading-5">This text is the release changelog handed to the worker. Your edits are preserved.</p>
-          <p className="pt-2 leading-5">For Base deployments, the changelog is generated even when no changes are detected.</p>
+          <p>Code scan: <span className="text-foreground">{reviewOpen ? "Source inspection complete" : "Waiting for inspection"}</span></p>
+          <p>Packaging: <span className="text-foreground">{reviewOpen ? "Queued after Send" : "Waiting"}</span></p>
+          <p>Technical validation: <span className="text-foreground">{reviewOpen ? "Runs in License Master" : "Waiting"}</span></p>
         </div>
       </div>
+    </div>
+    <div className="border-t bg-muted/20 p-4">
+      <div className="mb-3 text-[11px] text-muted-foreground">
+        {ready ? "Changelog reviewed. The release is ready to be sent to the V1 worker." : "Inspect the source and review the generated changelog. The release cannot be sent until both are complete."}
+      </div>
+      <button className="button-primary w-full sm:w-auto" disabled={!ready || busy==="start"} onClick={onStart}>
+        {busy==="start"?<Loader2 className="animate-spin" size={15}/>:<Rocket size={15}/>}
+        {busy==="start" ? "Sending release…" : type === "base" ? "Send reviewed Base release" : "Send reviewed update"}
+      </button>
     </div>
   </section>;
 }
