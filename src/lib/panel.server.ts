@@ -10,7 +10,7 @@ const BASE_WORKFLOW=process.env.BASE_RELEASE_WORKFLOW||"release-to-license-maste
 const ENGINE_WORKFLOW=process.env.ENGINE_RELEASE_WORKFLOW||"publish-engine-release.yml";
 
 const required=(name:string)=>{const v=process.env[name];if(!v)throw new Error(`Missing server environment variable: ${name}`);return v};
-const masterUrl=()=> (process.env.LICENSE_MASTER_URL||"https://incendiarynetworks.cc/api").replace(/\/+$/,"");
+const masterUrl=()=> (process.env.LICENSE_MASTER_URL||"https://incendiarynetworks.cc/api/v1").replace(/\/+$/,"");
 const normalizeChannel=(value:string)=>String(value||"stable").trim().toLowerCase();
 const allowedRepos=new Set([BASE_REPO,ENGINE_REPO]);
 
@@ -57,7 +57,7 @@ export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:
  readSession(data.token);
  const releaseType=data.type==="base"?"base":"update",channel=normalizeChannel(data.channel),product="orbitfs_base";
  const [releases,channels]=await Promise.all([
-  licenseMaster(`/v1/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`),
+  licenseMaster(`/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`),
   licenseMaster(`/v1/release-channels?include_disabled=false`)
  ]);
  const availableChannels=Array.isArray(channels?.channels)?channels.channels.filter((x:any)=>x?.enabled===true).map((x:any)=>String(x.channel).trim().toLowerCase()).filter(Boolean):[];
