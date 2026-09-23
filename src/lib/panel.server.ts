@@ -58,7 +58,7 @@ export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:
  const releaseType=data.type==="base"?"base":"update",channel=normalizeChannel(data.channel),product="orbitfs_base";
  const [releases,channels]=await Promise.all([
   licenseMaster(`/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`),
-  licenseMaster(`/v1/release-channels?include_disabled=false`)
+  licenseMaster(`/release-channels?include_disabled=false`)
  ]);
  const availableChannels=Array.isArray(channels?.channels)?channels.channels.filter((x:any)=>x?.enabled===true).map((x:any)=>String(x.channel).trim().toLowerCase()).filter(Boolean):[];
  return {releases:releases?.releases||[],channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
@@ -94,7 +94,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const channel=normalizeChannel(data.channel);
  const expectedTemplate = data.type === "base" ? "base_deployment_log" : "update_changelog";
  if (data.changelogTemplate !== expectedTemplate) throw new Error(`Use the ${expectedTemplate === "base_deployment_log" ? "Base Deployment Log" : "Update Changelog"} template for this release type.`);
- const channels=await licenseMaster(`/v1/release-channels?include_disabled=false`);
+ const channels=await licenseMaster(`/release-channels?include_disabled=false`);
  const channelEnabled=Array.isArray(channels?.channels)&&channels.channels.some((x:any)=>String(x.channel).trim().toLowerCase()===channel&&x.enabled===true);
  if(!channelEnabled)throw new Error("Release channel is not configured or is disabled in License Master: "+channel);
  const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF,workflow=data.type==="base"?BASE_WORKFLOW:ENGINE_WORKFLOW;
