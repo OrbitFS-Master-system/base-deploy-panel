@@ -408,7 +408,7 @@ function Composer(p: any) {
   const base = p.type === "base";
   const currentVersion = p.baseline?.version || null;
   const suggestedVersion = currentVersion && /^\d+\.\d+\.\d+/.test(String(currentVersion))
-    ? String(currentVersion).replace(/^(\d+)\.(\d+)\.(\d+).*$/, (_: string, major: string, minor: string, patch: string) => \`${major}.${minor}.${Number(patch) + 1}\`)
+    ? String(currentVersion).replace(/^(\d+)\.(\d+)\.(\d+).*$/, (_: string, major: string, minor: string, patch: string) => `${major}.${minor}.${Number(patch) + 1}`)
     : "";
   const canStart = Boolean(p.version.trim()) && (base || p.components.length > 0);
   const templateLabel = base ? "Base Deployment Log" : "Update Changelog";
