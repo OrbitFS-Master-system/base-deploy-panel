@@ -392,12 +392,12 @@ function Composer(p: any) {
         <div className="mt-5 grid gap-4 border-t pt-5 sm:grid-cols-2"><Field label="Minimum Base version"><input className="control" value={p.minBase} onChange={e=>p.setMinBase(e.target.value)}/></Field><Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e=>p.setProtocol(e.target.value)}/></Field></div></>}
         <div className="mt-5 border-t pt-5">
           <Field label="Changelog template">
-            <select className="control" value={p.changelogTemplate} onChange={e => p.setChangelogTemplate(e.target.value)}>
+            <select className="control" value={p.changelogTemplate} disabled>
               <option value="base_deployment_log">Base Deployment Log</option>
               <option value="update_changelog">Update Changelog</option>
             </select>
           </Field>
-          <p className="mt-1 text-[11px] text-muted-foreground">The template is filled automatically after source inspection. You can edit the completed changelog before sending it.</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">Template is fixed by release type: Base releases use the Base Deployment Log; Engine updates use the Update Changelog. The generated text remains fully editable below.</p>
         </div>
         <div className="mt-5 border-t pt-5"><Field label={base ? "Additional operator notes" : "Additional developer notes"}><textarea className="control min-h-24 resize-y" placeholder="Optional extra context. It will be included when the changelog is generated." value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
         <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><span className="text-[11px] text-muted-foreground">Inspect first. Review the generated changelog below. Sending happens after the review.</span></div>
