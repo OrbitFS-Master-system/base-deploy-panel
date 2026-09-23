@@ -114,8 +114,8 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   if (!publishedBase) throw new Error("A published, technically approved OrbitFS Base release is required before creating Engine updates.");
  }
  const previousResult = data.type === "base"
-  ? await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`)
-  : await licenseMaster(`/v1/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=update&include_archived=false`);
+  ? await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`)
+  : await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=update&include_archived=false`);
  const previousRelease = (previousResult?.releases || [])
   .filter((r:any) => r.review_status === "approved" && r.source_sha)
   .sort((a:any,b:any) => new Date(b.published_at || b.created_at || 0).getTime() - new Date(a.published_at || a.created_at || 0).getTime())[0];
