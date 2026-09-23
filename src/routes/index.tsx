@@ -4,7 +4,7 @@ import {
   Activity, AlertCircle, ArrowRight, CheckCircle2, ChevronRight, CircleDot,
   Clock3, FileCode2, GitBranch, Github, Layers3, Loader2, PackageCheck,
   RefreshCw, Rocket, ScrollText, Server, Settings2, ShieldCheck, Terminal,
-  UploadCloud, XCircle, Zap
+  UploadCloud, XCircle, Zap, Search, Boxes, Gauge, GitCommit, BarChart3, Bell, Menu, ChevronDown
 } from "lucide-react";
 import {
   getPanelState, inspectSource, startRelease, getReleaseRun,
@@ -13,7 +13,7 @@ import {
 
 export const Route = createFileRoute("/")({ component: Index });
 
-type Tab = "overview" | "base" | "engine" | "activity" | "settings";
+type Tab = "overview" | "releases" | "base" | "engine" | "activity" | "repositories" | "environments" | "monitoring" | "settings";
 type ReleaseType = "base" | "engine";
 
 const EMPTY = { releases: [], channels: [] };
@@ -223,8 +223,10 @@ function Index() {
             {error && <Alert tone="error" onClose={() => setError("")}>{error}</Alert>}
             {notice && <Alert tone="success" onClose={() => setNotice("")}>{notice}</Alert>}
             {run && <LiveConsole run={run} repo={runRepo} handoff={handoff} />}
-            {tab === "overview" && <Dashboard stats={stats} releases={allReleases} connected={masterConnected} onBase={() => { resetComposer(); setTab("base"); }}
-              onEngine={() => { resetComposer(); setTab("engine"); }} onActivity={() => setTab("activity")} />}
+            {tab === "overview" && <Dashboard stats={stats} releases={allReleases} connected={masterConnected} run={run} channels={availableChannels}
+              onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }}
+              onActivity={() => setTab("activity")} onReleases={() => setTab("releases")} />}
+            {tab === "releases" && <ReleasesPage releases={allReleases} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
             {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
@@ -233,7 +235,10 @@ function Index() {
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("engine")} onStart={() => start("engine")} />}
-            {tab === "activity" && <ActivityPage releases={allReleases} run={run} />}
+            {tab === "activity" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} />}
+            {tab === "repositories" && <RepositoriesPage data={data} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
+            {tab === "environments" && <EnvironmentsPage channels={availableChannels} data={data} />}
+            {tab === "monitoring" && <SystemMonitoringPage releases={allReleases} connected={masterConnected} run={run} />}
             {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
           </div>
         </main>
@@ -271,16 +276,22 @@ function Login(p: any) {
 }
 
 function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
-  return <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-    <div className="mx-auto flex h-14 max-w-[1680px] items-center justify-between px-4 sm:px-6 xl:px-8">
-      <div className="flex items-center gap-3 min-w-0"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-black text-primary-foreground">O</div>
-        <div className="min-w-0"><div className="truncate text-sm font-semibold">OrbitFS Release Control</div><div className="hidden text-[11px] text-muted-foreground sm:block">Stage 1 · Release preparation</div></div>
+  return <header className="orbit-topbar sticky top-0 z-30 border-b lg:ml-0">
+    <div className="flex h-[66px] items-center justify-between gap-3 px-4 sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="lg:hidden orbit-logo scale-90"><span></span></div>
+        <div className="orbit-search hidden max-w-[560px] flex-1 items-center gap-2 md:flex">
+          <Search size={15}/><span className="text-xs text-muted-foreground">Search repositories, releases, or commits...</span><kbd>/</kbd>
+        </div>
       </div>
       <div className="flex items-center gap-2">
-        <div className="hidden items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-xs sm:flex"><i className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-destructive"}`} />{connected ? "License Master" : "Master offline"}</div>
-        <button className="icon-button" title="Refresh" onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} size={15} /></button>
-        <div className="hidden border-l pl-2 text-right sm:block"><p className="text-xs font-medium">{user.display_name || user.email}</p><p className="text-[10px] text-muted-foreground">{user.role || "operator"}</p></div>
-        <button className="icon-button" title="Sign out" onClick={onSignOut}><UploadCloud className="rotate-180" size={15} /></button>
+        <button className="icon-button border-0 bg-transparent" title="Refresh" onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} size={16} /></button>
+        <span className={`hidden rounded-full border px-2.5 py-1 text-[10px] font-semibold sm:inline-flex ${connected ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>
+          {connected ? "Master online" : "Master offline"}
+        </span>
+        <div className="hidden h-8 w-px bg-border sm:block"/>
+        <div className="hidden text-right sm:block"><p className="text-xs font-medium">{user.display_name || user.email}</p><p className="text-[10px] text-muted-foreground">{user.role || "operator"}</p></div>
+        <button className="orbit-avatar" title="Sign out" onClick={onSignOut}>{String(user.display_name || user.email || "O").slice(0,1).toUpperCase()}</button>
       </div>
     </div>
   </header>;
@@ -288,31 +299,38 @@ function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
 
 function Sidebar({ tab, setTab, activeRun }: any) {
   const items = [
-    ["overview", "Dashboard", "System overview", Activity],
-    ["base", "Base release", "orbitfs_base", Rocket],
-    ["engine", "Engine updates", "MCP · Apex · Studio", Layers3],
-    ["activity", "Releases & runs", "History and live jobs", Terminal],
-    ["settings", "Configuration", "Connections and sources", Settings2],
+    ["overview", "Overview", "Release workspace", Gauge],
+    ["releases", "Releases", "All release records", PackageCheck],
+    ["activity", "Release Monitoring", "Live workflow health", Activity],
+    ["repositories", "Repositories", "Source & workers", Boxes],
+    ["environments", "Environments", "Channels & stages", Server],
+    ["monitoring", "Monitoring", "System telemetry", BarChart3],
+    ["settings", "Settings", "Runtime configuration", Settings2],
   ] as const;
-  return <aside className="hidden w-60 shrink-0 border-r lg:block">
-    <div className="sticky top-14 p-3">
-      <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">Workspace</p>
+  return <aside className="orbit-sidebar hidden w-[230px] shrink-0 lg:block">
+    <div className="sticky top-0 flex h-screen flex-col px-3 py-5">
+      <div className="mb-7 flex items-center gap-3 px-2">
+        <div className="orbit-logo"><span></span></div>
+        <div><p className="text-lg font-semibold tracking-tight">OrbitFS</p><p className="text-[10px] text-muted-foreground">Release Control</p></div>
+      </div>
       <nav className="space-y-1">
         {items.map(([id, label, detail, Icon]) => <button key={id} onClick={() => setTab(id as Tab)}
-          className={`nav-item ${tab === id ? "nav-item-active" : ""}`}>
-          <span className="nav-icon"><Icon size={15} /></span><span className="min-w-0"><b>{label}</b><small>{detail}</small></span>
-          {id === "activity" && activeRun && <span className="ml-auto h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
+          className={`orbit-nav-item ${tab === id ? "orbit-nav-active" : ""}`}>
+          <span className="orbit-nav-icon"><Icon size={16} /></span>
+          <span className="min-w-0 flex-1"><b>{label}</b><small>{detail}</small></span>
+          {id === "activity" && activeRun && <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
         </button>)}
       </nav>
-      <div className="mt-6 rounded-xl border bg-card/60 p-3">
-        <p className="flex items-center gap-2 text-xs font-semibold"><ShieldCheck size={14} /> Controlled pipeline</p>
-        <div className="mt-3 space-y-2 text-[11px] text-muted-foreground">
+      <div className="mt-auto rounded-xl border border-[#173555] bg-[#081828]/70 p-3">
+        <p className="text-[10px] uppercase tracking-[.14em] text-muted-foreground">Pipeline authority</p>
+        <div className="mt-3 space-y-2">
           <StepLine n="1" text="Dev Panel prepares" active />
           <StepLine n="2" text="License Master validates" />
           <StepLine n="3" text="Billing Store reviews" />
           <StepLine n="4" text="Customer release publishes" />
         </div>
       </div>
+      <p className="px-2 pt-5 text-xs leading-5 text-[#6885a3]">Build further.<br/>Ship with OrbitFS.</p>
     </div>
   </aside>;
 }
@@ -321,39 +339,59 @@ function StepLine({ n, text, active }: any) {
   return <div className={`flex items-center gap-2 ${active ? "text-foreground" : ""}`}><span className="flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-bold">{n}</span>{text}</div>;
 }
 
-function Dashboard({ stats, releases, connected, onBase, onEngine, onActivity }: any) {
-  const recent = releases.slice(0, 6);
+function Dashboard({ stats, releases, connected, run, channels, onBase, onEngine, onActivity, onReleases }: any) {
+  const recent = releases.slice(0, 5);
+  const series = releaseSeries(releases);
+  const healthy = releases.filter((r:any)=>r.manifest?.validation?.status!=="failed").length;
+  const health = releases.length ? Math.round((healthy/releases.length)*100) : 100;
   return <section className="space-y-5">
-    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
-      <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">Developer workspace</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Prepare the next OrbitFS release.</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Stage 1 handles source inspection, change detection, release metadata, changelog context and workflow dispatch before License Master takes over technical validation.</p></div>
-      <div className="flex gap-2"><button className="button-primary" onClick={onBase}><Rocket size={15}/> New Base</button><button className="button-secondary" onClick={onEngine}><Layers3 size={15}/> New Engine update</button></div>
+    <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-primary">Release workspace</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Ship what’s next.</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Create, manage, and monitor OrbitFS releases while keeping License Master as the technical authority.</p>
+      </div>
+      <div className="flex gap-2"><button className="button-secondary" onClick={onReleases}>All releases</button><button className="button-primary" onClick={onEngine}><Rocket size={15}/> New release</button></div>
     </div>
-    <div className="grid grid-cols-2 overflow-hidden rounded-xl border bg-border md:grid-cols-4">
+
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Metric label="Release health" value={`${health}%`} detail={connected ? "License Master connected" : "Master connection unavailable"} />
       <Metric label="Candidates" value={stats.candidates} detail="Awaiting validation/review" />
-      <Metric label="Validation failed" value={stats.validationFailed} detail="Needs attention" />
-      <Metric label="Ready" value={stats.ready} detail="Approved, not published" />
-      <Metric label="Published" value={stats.published} detail="Current release history" />
+      <Metric label="Published" value={stats.published} detail="Visible release history" />
+      <Metric label="Active pipeline" value={run && !run.conclusion ? "1" : "0"} detail={run && !run.conclusion ? `Run #${run.id}` : "No workflow running"} />
     </div>
-    <div className="grid gap-4 xl:grid-cols-[1.4fr_.9fr]">
-      <section className="release-surface p-4 sm:p-5">
-        <SectionHead icon={Zap} title="Release pipeline" detail="The handoff path for every product release." />
-        <div className="mt-5 grid gap-2 sm:grid-cols-4">
-          <PipelineStep icon={FileCode2} title="Inspect" text="Compare source against the last approved commit." />
-          <PipelineStep icon={ScrollText} title="Prepare" text="Build version, channel, notes and compatibility metadata." />
-          <PipelineStep icon={Github} title="Run" text="Dispatch the existing GitHub worker and watch every job." />
-          <PipelineStep icon={ShieldCheck} title="Handoff" text="License Master receives the candidate for validation." />
+
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_360px]">
+      <section className="release-surface overflow-hidden">
+        <div className="flex items-center justify-between border-b p-4">
+          <SectionHead icon={PackageCheck} title="Recent releases" detail="Latest release candidates known to License Master."/>
+          <button className="text-xs font-medium text-primary" onClick={onReleases}>View all →</button>
+        </div>
+        <div>{recent.map((r:any)=><ReleaseSummaryRow key={r.id} release={r}/>)}
+          {!recent.length&&<div className="p-10 text-center text-sm text-muted-foreground">No release records are currently visible.</div>}
         </div>
       </section>
-      <section className="release-surface p-4 sm:p-5">
-        <SectionHead icon={Server} title="System status" detail="Live connections used by Stage 1." />
-        <div className="mt-4 space-y-2"><StatusRow label="License Master API" value={connected ? "Connected" : "Unavailable"} good={connected} /><StatusRow label="Base worker" value="V1-vercel-base" /><StatusRow label="Engine worker" value="V1-vercel-engine" /></div>
-      </section>
+
+      <div className="space-y-4">
+        <section className="release-surface p-4">
+          <div className="flex items-center justify-between"><SectionHead icon={Activity} title="Release activity" detail="Release records created over the last 7 days."/><span className="text-xs font-semibold">{series.reduce((n:number,x:any)=>n+x.count,0)}</span></div>
+          <MiniLineChart data={series}/>
+        </section>
+        <section className="release-surface p-4">
+          <SectionHead icon={ShieldCheck} title="Connected pipeline" detail="Authority stays separated across systems."/>
+          <div className="mt-4 space-y-2"><StatusRow label="License Master" value={connected ? "Connected" : "Unavailable"} good={connected}/><StatusRow label="Release channels" value={channels.length ? channels.join(", ") : "None reported"}/><StatusRow label="Base worker" value="V1-vercel-base"/><StatusRow label="Engine worker" value="V1-vercel-engine"/></div>
+        </section>
+      </div>
     </div>
-    <section className="release-surface overflow-hidden">
-      <div className="flex items-center justify-between border-b p-4"><SectionHead icon={Clock3} title="Recent releases" detail="Latest candidates known to License Master."/><button className="text-xs font-medium text-primary" onClick={onActivity}>View all →</button></div>
-      <ReleaseTable releases={recent} />
+
+    <section className="release-surface p-4 sm:p-5">
+      <SectionHead icon={Zap} title="Release pipeline" detail="The handoff remains the same; only the control surface is changing." />
+      <div className="mt-5 grid gap-2 sm:grid-cols-4">
+        <PipelineStep icon={FileCode2} title="Inspect" text="Compare source against the approved baseline." />
+        <PipelineStep icon={ScrollText} title="Prepare" text="Build version, changelog and compatibility metadata." />
+        <PipelineStep icon={Github} title="Run" text="Dispatch the existing GitHub release worker." />
+        <PipelineStep icon={ShieldCheck} title="Handoff" text="License Master receives and validates the candidate." />
+      </div>
     </section>
   </section>;
 }
@@ -535,6 +573,100 @@ function ActivityPage({ releases, run }: any) {
 
 function ReleaseTable({ releases }: any) {
   return <div>{releases.map((r:any)=><div key={r.id} className="grid gap-3 border-b p-4 last:border-b-0 md:grid-cols-[1fr_120px_150px_160px] md:items-center"><div className="min-w-0"><p className="truncate text-sm font-medium">{r.product_name||"OrbitFS"} <span className="text-muted-foreground">v{r.version}</span></p><p className="mt-1 truncate text-[11px] text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref||"—"} · {(r.source_sha||"").slice(0,8)}</p></div><StatusPill text={r.status||"candidate"}/><StatusPill text={`review ${r.review_status||"pending"}`}/><StatusPill text={`validation ${r.manifest?.validation?.status||"not run"}`}/></div>)}{!releases.length&&<div className="p-10 text-center text-sm text-muted-foreground">No releases are currently visible.</div>}</div>;
+}
+
+function releaseSeries(releases:any[]) {
+  const now = new Date();
+  const days = Array.from({length:7},(_,i)=>{
+    const d=new Date(now); d.setHours(0,0,0,0); d.setDate(d.getDate()-(6-i));
+    return {key:d.toISOString().slice(0,10), label:d.toLocaleDateString(undefined,{weekday:"short"}), count:0};
+  });
+  for(const r of releases||[]) {
+    const d=new Date(r.created_at||r.published_at||0);
+    const key=Number.isFinite(d.getTime())?d.toISOString().slice(0,10):"";
+    const row=days.find(x=>x.key===key); if(row) row.count++;
+  }
+  return days;
+}
+
+function MiniLineChart({data}:any) {
+  const max=Math.max(1,...data.map((x:any)=>x.count));
+  const pts=data.map((x:any,i:number)=>`${i*(100/(data.length-1||1))},${42-(x.count/max)*34}`).join(" ");
+  return <div className="mt-4">
+    <svg viewBox="0 0 100 48" className="h-28 w-full overflow-visible" preserveAspectRatio="none">
+      <defs><linearGradient id="orbitArea" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="currentColor" stopOpacity=".32"/><stop offset="100%" stopColor="currentColor" stopOpacity="0"/></linearGradient></defs>
+      <line x1="0" y1="42" x2="100" y2="42" className="text-border" stroke="currentColor" strokeWidth=".5"/>
+      <polygon points={`0,42 ${pts} 100,42`} className="text-primary" fill="url(#orbitArea)"/>
+      <polyline points={pts} fill="none" className="text-primary" stroke="currentColor" strokeWidth="1.4" vectorEffect="non-scaling-stroke"/>
+      {data.map((x:any,i:number)=><circle key={x.key} cx={i*(100/(data.length-1||1))} cy={42-(x.count/max)*34} r="1.4" className="text-primary" fill="currentColor"/>)}
+    </svg>
+    <div className="grid grid-cols-7 text-center text-[9px] text-muted-foreground">{data.map((x:any)=><span key={x.key}>{x.label}</span>)}</div>
+  </div>;
+}
+
+function ReleaseSummaryRow({release:r}:any) {
+  const published=r.status==="published";
+  return <div className="group grid gap-3 border-b border-border/70 p-4 last:border-b-0 sm:grid-cols-[1fr_auto] sm:items-center">
+    <div className="min-w-0">
+      <div className="flex items-center gap-2"><span className="orbit-release-icon"><PackageCheck size={14}/></span><p className="truncate text-sm font-semibold">OrbitFS <span className="text-muted-foreground">v{r.version}</span></p><StatusPill text={published?"published":r.status||"candidate"}/></div>
+      <p className="mt-1.5 truncate pl-9 text-[11px] text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref||"—"} · {(r.source_sha||"").slice(0,8)}</p>
+    </div>
+    <div className="flex items-center gap-4 pl-9 text-[10px] text-muted-foreground sm:pl-0"><span>{r.review_status||"pending"} review</span><ChevronRight size={14}/></div>
+  </div>;
+}
+
+function ReleasesPage({releases,onBase,onEngine}:any) {
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end"><PageHead title="All releases" detail="Every Base and Engine candidate currently visible from License Master."/><div className="flex gap-2"><button className="button-secondary" onClick={onBase}><Rocket size={14}/> New Base</button><button className="button-primary" onClick={onEngine}><Layers3 size={14}/> New Engine update</button></div></div>
+    <section className="release-surface overflow-hidden">
+      <div className="flex items-center justify-between border-b p-4"><SectionHead icon={PackageCheck} title="Release registry" detail={`${releases.length} release records`}/><span className="text-[10px] text-muted-foreground">License Master authoritative state</span></div>
+      <ReleaseTable releases={releases}/>
+    </section>
+  </section>;
+}
+
+function MonitoringPage({releases,run,connected}:any) {
+  const series=releaseSeries(releases);
+  return <section className="space-y-4">
+    <PageHead title="Release monitoring" detail="Live workflow state, handoff health, and recent release activity."/>
+    <div className="grid gap-4 xl:grid-cols-[1.5fr_.8fr]">
+      <section className="release-surface p-4"><SectionHead icon={Activity} title="7-day release activity" detail="Release records created per day."/><MiniLineChart data={series}/></section>
+      <section className="release-surface p-4"><SectionHead icon={Gauge} title="Current state" detail="Live control-plane status."/><div className="mt-4 space-y-2"><StatusRow label="License Master" value={connected?"Connected":"Unavailable"} good={connected}/><StatusRow label="Workflow" value={run?(run.conclusion||run.status||"queued"):"Idle"} good={run?.conclusion==="success"}/><StatusRow label="Visible releases" value={String(releases.length)}/></div></section>
+    </div>
+    <ActivityPage releases={releases} run={run}/>
+  </section>;
+}
+
+function RepositoriesPage({data,onBase,onEngine}:any) {
+  const base=data.base?.repositories?.base, engine=data.engine?.repositories?.engine;
+  return <section className="space-y-4"><PageHead title="Repositories" detail="Release builders connected to the Dev Panel. These remain execution workers, not release authorities."/>
+    <div className="grid gap-4 lg:grid-cols-2">
+      <RepositoryCard title="OrbitFS Base" repo={base?.repo} refName={base?.ref} workflow={base?.workflow} icon={Rocket} onCreate={onBase}/>
+      <RepositoryCard title="OrbitFS Engine" repo={engine?.repo} refName={engine?.ref} workflow={engine?.workflow} icon={Layers3} onCreate={onEngine}/>
+    </div>
+  </section>;
+}
+
+function RepositoryCard({title,repo,refName,workflow,icon:Icon,onCreate}:any) {
+  return <section className="release-surface overflow-hidden"><div className="flex items-start justify-between border-b p-4"><SectionHead icon={Icon} title={title} detail={repo||"Repository unavailable"}/><span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[9px] text-emerald-300">CONNECTED</span></div><div className="space-y-2 p-4"><StatusRow label="Repository" value={repo||"—"}/><StatusRow label="Release ref" value={refName||"—"}/><StatusRow label="Workflow" value={workflow||"—"}/></div><div className="border-t p-4"><button className="button-primary" onClick={onCreate}><Rocket size={14}/> Prepare release</button></div></section>;
+}
+
+function EnvironmentsPage({channels,data}:any) {
+  return <section className="space-y-4"><PageHead title="Environments" detail="Release channels and handoff stages reported by License Master."/>
+    <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
+      <section className="release-surface p-4"><SectionHead icon={Server} title="Release channels" detail="Enabled channels returned by the authoritative API."/><div className="mt-4 flex flex-wrap gap-2">{channels.length?channels.map((x:string)=><span key={x} className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">{x}</span>):<span className="text-xs text-muted-foreground">No channels returned.</span>}</div></section>
+      <section className="release-surface p-4"><SectionHead icon={ShieldCheck} title="Production handoff" detail="Authority and execution boundaries remain unchanged."/><div className="mt-4 grid gap-2 sm:grid-cols-4"><PipelineStep icon={FileCode2} title="Dev Panel" text="Prepare"/><PipelineStep icon={ShieldCheck} title="License Master" text="Validate"/><PipelineStep icon={PackageCheck} title="Billing Store" text="Publish"/><PipelineStep icon={Rocket} title="Customer deployer" text="Execute"/></div></section>
+    </div>
+  </section>;
+}
+
+function SystemMonitoringPage({releases,connected,run}:any) {
+  const failed=releases.filter((r:any)=>r.manifest?.validation?.status==="failed").length;
+  const pending=releases.filter((r:any)=>r.review_status==="pending").length;
+  return <section className="space-y-4"><PageHead title="Monitoring" detail="Control-plane health derived from the same release and workflow state already used by the Dev Panel."/>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Master API" value={connected?"Online":"Offline"} detail="License Master connection"/><Metric label="Validation failures" value={failed} detail="Visible failed validations"/><Metric label="Pending review" value={pending} detail="Candidates awaiting review"/><Metric label="Workflow" value={run?(run.conclusion||run.status||"queued"):"Idle"} detail={run?.id?`Run #${run.id}`:"No active run"}/></div>
+    <section className="release-surface p-4"><SectionHead icon={BarChart3} title="Release activity graph" detail="Live from release timestamps returned by License Master."/><MiniLineChart data={releaseSeries(releases)}/></section>
+  </section>;
 }
 
 function SettingsPage({ data, connected }: any) {
