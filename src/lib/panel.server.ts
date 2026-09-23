@@ -107,7 +107,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  readSession(data.token);
  const version=data.version.trim();
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
- if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one Engine component.");
+ if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one update target (Base, Apex, MCP, or Studio).");
  const channel=normalizeChannel(data.channel);
  const expectedTemplate = data.type === "base" ? "base_deployment_log" : "update_changelog";
  if (data.changelogTemplate !== expectedTemplate) throw new Error(`Use the ${expectedTemplate === "base_deployment_log" ? "Base Deployment Log" : "Update Changelog"} template for this release type.`);
