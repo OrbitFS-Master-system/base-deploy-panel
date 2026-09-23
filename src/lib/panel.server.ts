@@ -143,7 +143,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  }
 
  const selectedComponents = data.type === "engine"
-   ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["apex","mcp","studio"].includes(x)))]
+   ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["base","apex","mcp","studio"].includes(x)))]
    : ["base"];
 
  const releaseRecord = {
@@ -172,7 +172,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   previous_source_commit:previousSourceCommit,
  };
  if(data.type==="base") inputs.release_record=JSON.stringify(releaseRecord);
- if(data.type==="engine")Object.assign(inputs,{apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
+ if(data.type==="engine")Object.assign(inputs,{base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
  const dispatchedAt=Date.now();
   await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
   let runId:number|undefined;
