@@ -19,17 +19,17 @@
 - [x] Stage 1 stops before publication
 
 ## Stage 2 — Custom License Manager
-- [ ] Receive Dev Panel release candidates
-- [ ] Validate release manifests/artifacts
-- [ ] Validate Base/Engine compatibility and licensing rules
-- [ ] Approve/reject candidates
-- [ ] Provide accepted releases to Billing Store
+- [x] Receive Dev Panel release candidates
+- [x] Validate release manifests/artifacts
+- [x] Validate Base/Engine compatibility and licensing rules
+- [x] Approve/reject candidates
+- [x] Provide accepted releases to Billing Store
 
 ## Stage 3 — V2_Billing_Store Admin Portal
-- [ ] Receive approved License Manager releases
-- [ ] Admin review/customisation
-- [ ] Channel/access configuration
-- [ ] Publish releases
+- [x] Receive approved License Manager releases
+- [x] Admin review/customisation
+- [x] Channel/access configuration
+- [x] Publish releases
 
 ## Stage 4 — Customer Portal
 - [ ] Keep existing Base Deployer for new installations and major Base deployments
