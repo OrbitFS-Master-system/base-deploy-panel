@@ -167,3 +167,164 @@ input:focus, select:focus, textarea:focus {
 .nav-item-active .nav-icon { background: var(--primary); color: var(--primary-foreground); }
 .nav-item b { display: block; font-size: .75rem; font-weight: 600; }
 .nav-item small { display: block; margin-top: .1rem; font-size: .625rem; color: var(--muted-foreground); }
+
+
+/* 2026 OrbitFS control-panel redesign */
+:root {
+  --background: oklch(0.105 0.022 255);
+  --card: oklch(0.145 0.028 255);
+  --popover: oklch(0.17 0.03 255);
+  --primary: oklch(0.69 0.2 257);
+  --secondary: oklch(0.22 0.04 255);
+  --muted: oklch(0.19 0.035 255);
+  --muted-foreground: oklch(0.69 0.035 250);
+  --accent: oklch(0.2 0.065 257);
+  --border: oklch(0.255 0.045 255);
+  --input: oklch(0.16 0.035 255);
+}
+body {
+  background:
+    radial-gradient(circle at 62% -12%, rgba(31,119,255,.11), transparent 34rem),
+    linear-gradient(180deg,#071522 0%,#06111d 46%,#050e18 100%);
+}
+.orbit-sidebar {
+  background:
+    radial-gradient(circle at 20% 2%, rgba(38,112,255,.08), transparent 17rem),
+    linear-gradient(180deg,#071728,#071421 62%,#06111d);
+  border-right: 1px solid #142c43;
+  box-shadow: 14px 0 40px rgba(0,0,0,.14);
+}
+.orbit-topbar {
+  background: rgba(5,15,26,.88);
+  border-color: #142c43;
+  backdrop-filter: blur(18px);
+}
+.orbit-logo {
+  position: relative;
+  width: 35px;
+  height: 35px;
+  flex: 0 0 auto;
+}
+.orbit-logo:before,
+.orbit-logo:after {
+  content:"";
+  position:absolute;
+  inset:5px;
+  border:2px solid #4385ff;
+  border-radius:50%;
+  transform:rotate(-38deg);
+}
+.orbit-logo:after {
+  inset:2px 13px;
+  border-color:#2369ff;
+  border-width:2px;
+  transform:rotate(48deg);
+}
+.orbit-logo span {
+  position:absolute;
+  width:7px;
+  height:7px;
+  border-radius:999px;
+  background:#54a2ff;
+  right:1px;
+  top:3px;
+  box-shadow:0 0 16px rgba(72,143,255,.9);
+}
+.orbit-search {
+  height: 38px;
+  border: 1px solid #173654;
+  border-radius: 8px;
+  background: #071a2d;
+  padding: 0 12px;
+  color: #8bb4dd;
+}
+.orbit-search kbd {
+  margin-left:auto;
+  min-width:20px;
+  height:20px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid #20405f;
+  border-radius:5px;
+  background:#091526;
+  color:#76a4d4;
+  font-size:10px;
+}
+.orbit-avatar {
+  width:32px;
+  height:32px;
+  border-radius:999px;
+  border:1px solid #26557f;
+  background:linear-gradient(145deg,#2d79c8,#133554);
+  color:white;
+  font-size:12px;
+  font-weight:700;
+}
+.orbit-nav-item {
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:.7rem;
+  min-height:48px;
+  padding:.55rem .65rem;
+  border:1px solid transparent;
+  border-radius:8px;
+  background:transparent;
+  color:#a8bfd6;
+  text-align:left;
+  transition:.16s ease;
+}
+.orbit-nav-item:hover { background:#0c2035; color:#e8f3ff; }
+.orbit-nav-active {
+  background:linear-gradient(90deg,rgba(38,112,255,.22),rgba(38,112,255,.08));
+  border-color:#153b68;
+  color:#4f92ff;
+  box-shadow:inset 3px 0 0 #2879ff;
+}
+.orbit-nav-icon {
+  width:30px;
+  height:30px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  color:inherit;
+}
+.orbit-nav-item b { display:block; font-size:.78rem; font-weight:500; }
+.orbit-nav-item small { display:block; margin-top:1px; font-size:.58rem; color:#617f9d; }
+.release-surface {
+  border-color:#17344f;
+  background:
+    linear-gradient(180deg,rgba(11,30,49,.9),rgba(8,24,40,.9));
+  border-radius:8px;
+  box-shadow:0 12px 32px rgba(0,0,0,.08);
+}
+.button-primary {
+  border-color:#367df7;
+  background:linear-gradient(180deg,#4388ff,#2e6fe8);
+  color:white;
+  box-shadow:0 7px 18px rgba(38,112,255,.18);
+}
+.button-secondary {
+  border-color:#23435f;
+  background:#0a1c2e;
+  color:#dbeaff;
+}
+.icon-button { border-color:#1c3954; background:#091b2d; }
+.control {
+  border-color:#1d3a55;
+  background:#071a2b;
+}
+.orbit-release-icon {
+  width:28px;
+  height:28px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:7px;
+  background:rgba(42,116,255,.14);
+  color:#4a91ff;
+}
+@media (min-width: 1024px) {
+  .orbit-topbar { margin-left: 230px; }
+}
