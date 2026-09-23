@@ -192,7 +192,7 @@ function Index() {
       setNotice(r.runId ? `Release sent · GitHub workflow run #${r.runId} started.` : "Release sent to GitHub. Waiting for the workflow run to appear.");
       setVersion(""); setNotes(""); setChangelogDraft(""); setChangelogTemplate("base_deployment_log"); setFiles([]); setCommits([]);
       try { await load(session, true); } catch {}
-      setTab("activity");
+      setTab(type === "base" ? "base" : "engine");
     } catch (x: any) {
       setError(x.message || "Unable to start release.");
     } finally { setBusy(""); }
@@ -222,7 +222,6 @@ function Index() {
           <div className="mx-auto max-w-[1440px] space-y-4">
             {error && <Alert tone="error" onClose={() => setError("")}>{error}</Alert>}
             {notice && <Alert tone="success" onClose={() => setNotice("")}>{notice}</Alert>}
-            {run && <LiveConsole run={run} repo={runRepo} handoff={handoff} />}
             {tab === "overview" && <Dashboard stats={stats} releases={allReleases} connected={masterConnected} run={run} channels={availableChannels}
               onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }}
               onActivity={() => setTab("activity")} onReleases={() => setTab("releases")} />}
@@ -230,11 +229,13 @@ function Index() {
             {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
-              onInspect={() => inspect("base")} onStart={() => start("base")} />}
+              onInspect={() => inspect("base")} onStart={() => start("base")}
+              run={runRepo === "lucaskerim123/V1-vercel-base" ? run : null} runRepo={runRepo} handoff={handoff} connected={masterConnected} />}
             {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
-              onInspect={() => inspect("engine")} onStart={() => start("engine")} />}
+              onInspect={() => inspect("engine")} onStart={() => start("engine")}
+              run={runRepo === "lucaskerim123/V1-vercel-engine" ? run : null} runRepo={runRepo} handoff={handoff} connected={masterConnected} />}
             {tab === "activity" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} />}
             {tab === "repositories" && <RepositoriesPage data={data} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
             {tab === "environments" && <EnvironmentsPage channels={availableChannels} data={data} />}
@@ -300,6 +301,8 @@ function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
 function Sidebar({ tab, setTab, activeRun }: any) {
   const items = [
     ["overview", "Overview", "Release workspace", Gauge],
+    ["base", "Base Deployment", "Complete Base release flow", Rocket],
+    ["engine", "Updates", "Manifest-driven Engine updates", Layers3],
     ["releases", "Releases", "All release records", PackageCheck],
     ["activity", "Release Monitoring", "Live workflow health", Activity],
     ["repositories", "Repositories", "Source & workers", Boxes],
@@ -452,6 +455,17 @@ function Composer(p: any) {
       </section>
     </div>
     <ChangelogEditor type={p.type} template={p.changelogTemplate} value={p.changelogDraft} onChange={p.setChangelogDraft} commits={p.commits || []} files={p.files || []} canStart={canStart} reviewOpen={p.reviewOpen} busy={p.busy} onStart={p.onStart} />
+    {p.run && <LiveConsole run={p.run} repo={p.runRepo} handoff={p.handoff} />}
+    <section className="release-surface p-4 sm:p-5">
+      <SectionHead icon={ShieldCheck} title={base ? "Base release handoff" : "Update release handoff"} detail={base ? "The complete Base candidate stops at License Master technical authority." : "The update stops at License Master technical approval before Billing Store publication review."}/>
+      <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        <PipelineStep icon={FileCode2} title="Dev Panel" text="Inspect & prepare" />
+        <PipelineStep icon={Github} title={base ? "Base worker" : "Engine worker"} text="Build package" />
+        <PipelineStep icon={ShieldCheck} title="License Master" text={base ? "Validate & approve" : "Validate technically"} />
+        <PipelineStep icon={PackageCheck} title={base ? "Customer portal" : "Billing Store"} text={base ? "Publish after approval" : "Final publication review"} />
+      </div>
+      <p className="mt-4 text-[11px] leading-5 text-muted-foreground">{base ? "License Master remains the technical release authority. Customer infrastructure is never deployed from this page." : "License Master remains the technical authority. Billing Store owns customer-facing publication; customer deployers execute the manifest later."}</p>
+    </section>
   </section>;
 }
 
