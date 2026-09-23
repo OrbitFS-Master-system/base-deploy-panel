@@ -223,7 +223,7 @@ function Index() {
             {error && <Alert tone="error" onClose={() => setError("")}>{error}</Alert>}
             {notice && <Alert tone="success" onClose={() => setNotice("")}>{notice}</Alert>}
             {run && <LiveConsole run={run} repo={runRepo} handoff={handoff} />}
-            {tab === "overview" && <Dashboard stats={stats} releases={allReleases} onBase={() => { resetComposer(); setTab("base"); }}
+            {tab === "overview" && <Dashboard stats={stats} releases={allReleases} connected={masterConnected} onBase={() => { resetComposer(); setTab("base"); }}
               onEngine={() => { resetComposer(); setTab("engine"); }} onActivity={() => setTab("activity")} />}
             {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
@@ -321,7 +321,7 @@ function StepLine({ n, text, active }: any) {
   return <div className={`flex items-center gap-2 ${active ? "text-foreground" : ""}`}><span className="flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-bold">{n}</span>{text}</div>;
 }
 
-function Dashboard({ stats, releases, onBase, onEngine, onActivity }: any) {
+function Dashboard({ stats, releases, connected, onBase, onEngine, onActivity }: any) {
   const recent = releases.slice(0, 6);
   return <section className="space-y-5">
     <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
@@ -348,7 +348,7 @@ function Dashboard({ stats, releases, onBase, onEngine, onActivity }: any) {
       </section>
       <section className="release-surface p-4 sm:p-5">
         <SectionHead icon={Server} title="System status" detail="Live connections used by Stage 1." />
-        <div className="mt-4 space-y-2"><StatusRow label="License Master API" value="Connected" good /><StatusRow label="Base worker" value="V1-vercel-base" /><StatusRow label="Engine worker" value="V1-vercel-engine" /></div>
+        <div className="mt-4 space-y-2"><StatusRow label="License Master API" value={connected ? "Connected" : "Unavailable"} good={connected} /><StatusRow label="Base worker" value="V1-vercel-base" /><StatusRow label="Engine worker" value="V1-vercel-engine" /></div>
       </section>
     </div>
     <section className="release-surface overflow-hidden">
