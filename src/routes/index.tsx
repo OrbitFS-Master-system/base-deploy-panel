@@ -47,6 +47,7 @@ function Index() {
   const [runChannel, setRunChannel] = useState("stable");
   const [handoff, setHandoff] = useState<any>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [baseline, setBaseline] = useState<any>(null);
 
   const availableChannels = useMemo(() => {
     const all = [...(data.base.channels || []), ...(data.engine.channels || [])];
@@ -143,17 +144,19 @@ function Index() {
     localStorage.removeItem("orbitfs_panel_user");
     setSession(null);
     setData({ base: EMPTY, engine: EMPTY });
-    setRun(null); setRunRepo(""); setHandoff(null);
+    setRun(null); setRunRepo(""); setHandoff(null); setBaseline(null);
   };
 
   const inspect = async (type: ReleaseType) => {
     setBusy("inspect");
     setError(""); setNotice("");
     try {
-      const current = data[type].releases?.find((r: any) => r.review_status === "approved" && r.source_sha)?.source_sha;
-      const r = await inspectSource({ data: { token: session.token, type, from: current } });
+      const current = data[type].releases?.filter((r: any) => r.review_status === "approved" && r.source_sha)
+        .sort((a: any, b: any) => new Date(b.published_at || b.created_at || 0).getTime() - new Date(a.published_at || a.created_at || 0).getTime())[0]?.source_sha;
+      const r = await inspectSource({ data: { token: session.token, type, from: current, channel } });
       setFiles(r.files || []);
       setCommits(r.commits || []);
+      setBaseline(r.baseline || null);
       setChangelogTemplate(type === "base" ? "base_deployment_log" : "update_changelog");
       setChangelogDraft(buildChangelog(type, {
         version,
@@ -221,11 +224,11 @@ function Index() {
             {run && <LiveConsole run={run} repo={runRepo} handoff={handoff} />}
             {tab === "overview" && <Dashboard stats={stats} releases={allReleases} onBase={() => { resetComposer(); setTab("base"); }}
               onEngine={() => { resetComposer(); setTab("engine"); }} onActivity={() => setTab("activity")} />}
-            {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
+            {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("base")} onStart={() => start("base")} />}
-            {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits,
+            {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("engine")} onStart={() => start("engine")} />}
@@ -238,7 +241,7 @@ function Index() {
   );
 
   function resetComposer() {
-    setVersion(""); setNotes(""); setFiles([]); setCommits([]); setComponents([]); setReviewOpen(false);
+    setVersion(""); setNotes(""); setFiles([]); setCommits([]); setComponents([]); setReviewOpen(false); setBaseline(null);
   }
 }
 
@@ -364,6 +367,10 @@ function PipelineStep({ icon: Icon, title, text }: any) {
 
 function Composer(p: any) {
   const base = p.type === "base";
+  const currentVersion = p.baseline?.version || null;
+  const suggestedVersion = currentVersion && /^\\d+\\.\\d+\\.\\d+/.test(String(currentVersion))
+    ? String(currentVersion).replace(/^(\\d+)\\.(\\d+)\\.(\\d+).*$/, (_: string, major: string, minor: string, patch: string) => \`${major}.${minor}.${Number(patch) + 1}\`)
+    : "";
   const canStart = Boolean(p.version.trim()) && (base || p.components.length > 0);
   const templateLabel = base ? "Base Deployment Log" : "Update Changelog";
   return <section className="space-y-4">
@@ -377,7 +384,7 @@ function Composer(p: any) {
       <section className="release-surface p-4 sm:p-5">
         <SectionHead icon={Settings2} title="Release definition" detail="These values become the Stage 1 handoff inputs." />
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)}/></Field>
+          <div><Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)}/></Field>{suggestedVersion&&<button type="button" className="mt-1 text-[11px] font-medium text-primary" onClick={()=>p.setVersion(suggestedVersion)}>Use next patch · {suggestedVersion}</button>}</div>
           <Field label="Channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}>{(p.availableChannels?.length ? p.availableChannels : ["stable"]).map((x:string)=><option key={x}>{x}</option>)}</select></Field>
         </div>
         {!base && <><div className="mt-5 border-t pt-5"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Components</p><div className="mt-3 grid gap-2 sm:grid-cols-3">{["apex","mcp","studio"].map((c:string)=><button type="button" key={c} onClick={()=>p.setComponents((x:string[])=>x.includes(c)?x.filter(y=>y!==c):[...x,c])} className={`rounded-lg border p-3 text-left ${p.components.includes(c)?"border-primary bg-primary/10":"bg-background hover:bg-accent"}`}><span className="text-xs font-semibold">{c.toUpperCase()}</span><span className="mt-1 block text-[11px] text-muted-foreground">{p.components.includes(c)?"Included":"Not selected"}</span></button>)}</div></div>
@@ -399,6 +406,7 @@ function Composer(p: any) {
       <section className="release-surface p-4 sm:p-5">
         <SectionHead icon={ScrollText} title={base?"Release summary":"Review gate"} detail={base?"What Stage 1 will hand to the worker.":"Confirm the generated source context before dispatch."}/>
         <div className="mt-4 rounded-lg border bg-background/50 p-3 font-mono text-[11px] leading-6 text-muted-foreground">
+          <p><span className="text-foreground">baseline</span> = {currentVersion || "none published"}</p><p><span className="text-foreground">source</span> = {p.baseline?.sourceSha ? p.baseline.sourceSha.slice(0, 8) : "none"}</p>
           <p><span className="text-foreground">product</span> = orbitfs_base</p><p><span className="text-foreground">type</span> = {base?"base":"update"}</p><p><span className="text-foreground">version</span> = {p.version||"not set"}</p><p><span className="text-foreground">channel</span> = {p.channel}</p><p><span className="text-foreground">changes</span> = {p.files.length}</p>{!base&&<><p><span className="text-foreground">components</span> = {p.components.join(", ")||"none"}</p><p><span className="text-foreground">minBase</span> = {p.minBase}</p><p><span className="text-foreground">protocol</span> = {p.protocol}</p></>}
         </div>
         <div className="mt-4 rounded-lg border p-3 text-xs"><p className="font-medium">Stage 1 does not publish customers.</p><p className="mt-1 leading-5 text-muted-foreground">It prepares and dispatches the candidate. License Master validates it; Billing Store handles the final publication workflow.</p></div>
