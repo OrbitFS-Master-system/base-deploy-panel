@@ -72,6 +72,13 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
  const branch=await github(`/repos/${repo}/git/ref/heads/${encodeURIComponent(ref)}`);
  const head=branch?.object?.sha;if(!head)throw new Error(`Could not resolve ${repo}@${ref}`);
  let baseline:any=null;
+ let baseBaseline:any=null;
+ try {
+   const baseResult = await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`);
+   baseBaseline=(baseResult?.releases||[])
+     .filter((r:any)=>r.review_status==="approved"&&r.status==="published"&&r.source_sha)
+     .sort((a:any,b:any)=>new Date(b.published_at||b.created_at||0).getTime()-new Date(a.published_at||a.created_at||0).getTime())[0]||null;
+ } catch {}
  try {
    const result=await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`);
    baseline=(result?.releases||[])
@@ -79,9 +86,9 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
      .sort((a:any,b:any)=>new Date(b.published_at||b.created_at||0).getTime()-new Date(a.published_at||a.created_at||0).getTime())[0]||null;
  } catch {}
  const from=data.from||baseline?.source_sha||"";
- if(!from)return {repo,ref,head,baseline:baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha}:null,files:[],commits:[]};
+ if(!from)return {repo,ref,head,baseline:baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha}:null,baseBaseline:baseBaseline?{id:baseBaseline.id,version:baseBaseline.version,sourceSha:baseBaseline.source_sha}:null,files:[],commits:[]};
  const cmp=await github(`/repos/${repo}/compare/${encodeURIComponent(from)}...${encodeURIComponent(head)}`);
- return {repo,ref,head,baseline:baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha}:null,files:(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes})),commits:cmp?.commits||[]};
+ return {repo,ref,head,baseline:baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha}:null,baseBaseline:baseBaseline?{id:baseBaseline.id,version:baseBaseline.version,sourceSha:baseBaseline.source_sha}:null,files:(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes})),commits:cmp?.commits||[]};
 });
 
 export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string}})=>{  readSession(data.token);  const product="orbitfs_base";  const releaseType=data.type==="base"?"base":"update";  const channel=normalizeChannel(data.channel);  const result=await licenseMaster(`/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`);  const release=(result?.releases||[]).find((r:any)=>String(r.version)===String(data.version)&&!r.archived_at);  return {release:release||null,product,releaseType,channel};});export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{
