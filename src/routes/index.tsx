@@ -156,7 +156,7 @@ function Index() {
       const r = await inspectSource({ data: { token: session.token, type, from: current, channel } });
       setFiles(r.files || []);
       setCommits(r.commits || []);
-      setBaseline(r.baseline || null);
+      setBaseline({ ...(r.baseline || {}), repo: r.repo, ref: r.ref, head: r.head, baseBaseline: r.baseBaseline || null });
       if (type === "engine" && r.baseBaseline?.version) setMinBase(String(r.baseBaseline.version));
       setChangelogTemplate(type === "base" ? "base_deployment_log" : "update_changelog");
       setChangelogDraft(buildChangelog(type, {
@@ -190,7 +190,6 @@ function Index() {
       setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
       setRunRepo(r.repo); setRunVersion(version); setRunChannel(channel); setHandoff(null);
       setNotice(r.runId ? `Release sent · GitHub workflow run #${r.runId} started.` : "Release sent to GitHub. Waiting for the workflow run to appear.");
-      setVersion(""); setNotes(""); setChangelogDraft(""); setChangelogTemplate("base_deployment_log"); setFiles([]); setCommits([]);
       try { await load(session, true); } catch {}
       setTab(type === "base" ? "base" : "engine");
     } catch (x: any) {
@@ -414,60 +413,170 @@ function Composer(p: any) {
     ? String(currentVersion).replace(/^(\d+)\.(\d+)\.(\d+).*$/, (_: string, major: string, minor: string, patch: string) => `${major}.${minor}.${Number(patch) + 1}`)
     : "";
   const canStart = Boolean(p.version.trim()) && (base || p.components.length > 0);
-  const templateLabel = base ? "Base Deployment Log" : "Update Changelog";
+  const inspected = Boolean(p.reviewOpen);
+  const runState = p.run?.conclusion || p.run?.status || "";
+  const runDone = ["success","failure","cancelled","skipped"].includes(runState);
+  const runGood = runState === "success";
+  const validation = p.handoff?.manifest?.validation?.status || "";
+  const sourceRepo = p.baseline?.repo || (base ? "lucaskerim123/V1-vercel-base" : "lucaskerim123/V1-vercel-engine");
+  const sourceRef = p.baseline?.ref || (base ? "main" : "main");
+  const sourceSha = p.baseline?.head || "";
+  const status = (ready:boolean, active=false) => ready ? "passed" : active ? "running" : "waiting";
+
   return <section className="space-y-4">
-    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
-      <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">{base ? "Base release" : "Engine update"}</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{base ? "Prepare a Base release." : "Prepare an Engine update."}</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{base ? "Package the current orbitfs_base source state through the existing Base worker." : "Choose affected components, inspect source changes and prepare the Engine handoff."}</p></div>
-      <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs"><GitBranch size={14}/><code>{base ? "base-release" : "UPDATE_RELEASE"}</code></div>
-    </div>
-    <div className="grid gap-4 xl:grid-cols-[1fr_330px]">
-      <section className="release-surface p-4 sm:p-5">
-        <SectionHead icon={Settings2} title="Release definition" detail="These values become the Stage 1 handoff inputs." />
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <div><Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)}/></Field>{suggestedVersion&&<button type="button" className="mt-1 text-[11px] font-medium text-primary" onClick={()=>p.setVersion(suggestedVersion)}>Use next patch · {suggestedVersion}</button>}</div>
-          <Field label="Channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}>{(p.availableChannels?.length ? p.availableChannels : ["stable"]).map((x:string)=><option key={x}>{x}</option>)}</select></Field>
+    <div className="orbit-page-hero">
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="orbit-eyebrow">{base ? "BASE DEPLOYMENT" : "ENGINE UPDATE"}</span>
+          <span className="orbit-status-chip"><span className={`orbit-dot ${p.connected ? "orbit-dot-good" : "orbit-dot-bad"}`}/>{p.connected ? "License Master connected" : "License Master unavailable"}</span>
         </div>
-        {!base && <><div className="mt-5 border-t pt-5"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Components</p><div className="mt-3 grid gap-2 sm:grid-cols-3">{["base","apex","mcp","studio"].map((c:string)=><button type="button" key={c} onClick={()=>p.setComponents((x:string[])=>x.includes(c)?x.filter(y=>y!==c):[...x,c])} className={`rounded-lg border p-3 text-left ${p.components.includes(c)?"border-primary bg-primary/10":"bg-background hover:bg-accent"}`}><span className="text-xs font-semibold">{c.toUpperCase()}</span><span className="mt-1 block text-[11px] text-muted-foreground">{p.components.includes(c)?"Included":"Not selected"}</span></button>)}</div></div>
-        <div className="mt-5 grid gap-4 border-t pt-5 sm:grid-cols-2"><Field label="Minimum Base version"><input className="control" value={p.minBase} onChange={e=>p.setMinBase(e.target.value)}/></Field><Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e=>p.setProtocol(e.target.value)}/></Field></div></>}
-        <div className="mt-5 border-t pt-5">
-          <Field label="Changelog template">
-            <select className="control" value={p.changelogTemplate} disabled>
-              <option value="base_deployment_log">Base Deployment Log</option>
-              <option value="update_changelog">Update Changelog</option>
-            </select>
-          </Field>
-          <p className="mt-1 text-[11px] text-muted-foreground">Template is fixed by release type: Base releases use the Base Deployment Log; Engine updates use the Update Changelog. The generated text remains fully editable below.</p>
-        </div>
-        <div className="mt-5 border-t pt-5"><Field label={base ? "Additional operator notes" : "Additional developer notes"}><textarea className="control min-h-24 resize-y" placeholder="Optional extra context. It will be included when the changelog is generated." value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
-        <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><span className="text-[11px] text-muted-foreground">Inspect first. Review the generated changelog below. Sending happens after the review.</span></div>
-        {!canStart && <p className="mt-2 text-right text-[11px] text-muted-foreground">{base?"Enter a SemVer version to continue.":"Enter a version and select at least one component."}</p>}
-        {canStart&&!p.reviewOpen&&<p className="mt-2 text-right text-[11px] text-muted-foreground">Inspect the source first. The release stays gated until the generated changelog has been reviewed.</p>}
-      </section>
-      <section className="release-surface p-4 sm:p-5">
-        <SectionHead icon={ScrollText} title={base?"Release summary":"Review gate"} detail={base?"What Stage 1 will hand to the worker.":"Confirm the generated source context before dispatch."}/>
-        <div className="mt-4 rounded-lg border bg-background/50 p-3 font-mono text-[11px] leading-6 text-muted-foreground">
-          <p><span className="text-foreground">baseline</span> = {currentVersion || "none published"}</p><p><span className="text-foreground">source</span> = {p.baseline?.sourceSha ? p.baseline.sourceSha.slice(0, 8) : "none"}</p>
-          <p><span className="text-foreground">product</span> = orbitfs_base</p><p><span className="text-foreground">type</span> = {base?"base":"update"}</p><p><span className="text-foreground">version</span> = {p.version||"not set"}</p><p><span className="text-foreground">channel</span> = {p.channel}</p><p><span className="text-foreground">changes</span> = {p.files.length}</p>{!base&&<><p><span className="text-foreground">components</span> = {p.components.map((x:string)=>x==="base"?"BASE":x.toUpperCase()).join(", ")||"none"}</p><p><span className="text-foreground">minBase</span> = {p.minBase}</p><p><span className="text-foreground">protocol</span> = {p.protocol}</p></>}
-        </div>
-        <div className="mt-4 rounded-lg border p-3 text-xs"><p className="font-medium">Stage 1 does not publish customers.</p><p className="mt-1 leading-5 text-muted-foreground">It prepares and dispatches the candidate. License Master validates it; Billing Store handles the final publication workflow.</p></div>
-      </section>
-    </div>
-    <ChangelogEditor type={p.type} template={p.changelogTemplate} value={p.changelogDraft} onChange={p.setChangelogDraft} commits={p.commits || []} files={p.files || []} canStart={canStart} reviewOpen={p.reviewOpen} busy={p.busy} onStart={p.onStart} />
-    {p.run && <LiveConsole run={p.run} repo={p.runRepo} handoff={p.handoff} />}
-    <section className="release-surface p-4 sm:p-5">
-      <SectionHead icon={ShieldCheck} title={base ? "Base release handoff" : "Update release handoff"} detail={base ? "The complete Base candidate stops at License Master technical authority." : "The update stops at License Master technical approval before Billing Store publication review."}/>
-      <div className="mt-4 grid gap-2 sm:grid-cols-4">
-        <PipelineStep icon={FileCode2} title="Dev Panel" text="Inspect & prepare" />
-        <PipelineStep icon={Github} title={base ? "Base worker" : "Engine worker"} text="Build package" />
-        <PipelineStep icon={ShieldCheck} title="License Master" text={base ? "Validate & approve" : "Validate technically"} />
-        <PipelineStep icon={PackageCheck} title={base ? "Customer portal" : "Billing Store"} text={base ? "Publish after approval" : "Final publication review"} />
+        <h1>{base ? "Base Deployment" : "Updates"}</h1>
+        <p>{base ? "Prepare, build and hand off a complete OrbitFS Base release from one control surface." : "Prepare a manifest-driven OrbitFS update, validate compatibility and hand it through technical approval."}</p>
       </div>
-      <p className="mt-4 text-[11px] leading-5 text-muted-foreground">{base ? "License Master remains the technical release authority. Customer infrastructure is never deployed from this page." : "License Master remains the technical authority. Billing Store owns customer-facing publication; customer deployers execute the manifest later."}</p>
-    </section>
+      <div className="orbit-hero-meta">
+        <div><span>Repository</span><code>{sourceRepo.replace("lucaskerim123/","")}</code></div>
+        <div><span>Ref</span><code>{sourceRef}</code></div>
+        <div><span>Channel</span><code>{p.channel}</code></div>
+      </div>
+    </div>
+
+    <div className="orbit-pipeline-strip">
+      <PipelineNode n="01" label="Source" state={status(inspected, p.busy==="inspect")} />
+      <PipelineNode n="02" label={base ? "Definition" : "Targets"} state={status(Boolean(p.version && (base || p.components.length)))} />
+      <PipelineNode n="03" label={base ? "Review" : "Compatibility"} state={status(inspected)} />
+      <PipelineNode n="04" label="Build" state={status(runGood, Boolean(p.run && !runDone))} />
+      <PipelineNode n="05" label="Validation" state={status(validation==="passed" || validation==="approved", Boolean(p.handoff && !validation))} />
+      <PipelineNode n="06" label={base ? "Handoff" : "Publish review"} state={status(Boolean(p.handoff), Boolean(p.handoff && !runDone))} />
+    </div>
+
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="space-y-4">
+        <section className="release-surface overflow-hidden">
+          <div className="orbit-section-bar">
+            <SectionHead icon={Github} title={base ? "Base source" : "Engine source"} detail="Inspect the configured release repository against the last approved source." />
+            <button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={14}/>:<RefreshCw size={14}/>} {inspected ? "Re-inspect" : "Inspect source"}</button>
+          </div>
+          <div className="grid gap-px bg-border/40 sm:grid-cols-2 lg:grid-cols-4">
+            <TechStat label="Repository" value={sourceRepo.replace("lucaskerim123/","")} />
+            <TechStat label="Ref" value={sourceRef} mono />
+            <TechStat label="Current commit" value={sourceSha ? sourceSha.slice(0,8) : "Inspect to resolve"} mono />
+            <TechStat label="Previous approved" value={currentVersion ? `v${currentVersion}` : "Not resolved"} mono />
+          </div>
+          <div className="grid gap-px border-t bg-border/40 sm:grid-cols-3">
+            <TechStat label="Commits detected" value={inspected ? String(p.commits.length) : "—"} />
+            <TechStat label="Changed files" value={inspected ? String(p.files.length) : "—"} />
+            <TechStat label="Inspection" value={inspected ? "Complete" : "Waiting"} good={inspected} />
+          </div>
+        </section>
+
+        <section className="release-surface overflow-hidden">
+          <div className="orbit-section-bar"><SectionHead icon={Settings2} title={base ? "Release definition" : "Update definition"} detail={base ? "Define the Base candidate that will be sent to the release worker." : "Define the update and target only the components that belong in its manifest."}/></div>
+          <div className="p-4 sm:p-5">
+            {!base && <>
+              <div className="mb-5">
+                <div className="mb-3 flex items-end justify-between"><div><p className="text-xs font-semibold">Target components</p><p className="mt-1 text-[11px] text-muted-foreground">Only selected components are included in the update handoff.</p></div><span className="text-[10px] text-muted-foreground">{p.components.length} selected</span></div>
+                <div className="grid gap-2 sm:grid-cols-4">{["base","apex","mcp","studio"].map((name:string)=>{
+                  const selected=p.components.includes(name);
+                  return <button type="button" key={name} onClick={()=>p.setComponents((x:string[])=>x.includes(name)?x.filter(y=>y!==name):[...x,name])} className={`orbit-component ${selected?"orbit-component-selected":""}`}>
+                    <span className="orbit-component-icon"><Layers3 size={15}/></span><span><b>{name.toUpperCase()}</b><small>{selected?"Included in manifest":"Not selected"}</small></span>{selected&&<CheckCircle2 size={14} className="ml-auto text-primary"/>}
+                  </button>})}</div>
+              </div>
+              <div className="mb-5 border-t border-border/70"/>
+            </>}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><Field label={base ? "Base version" : "Update version"}><input className="control" placeholder="1.2.3" value={p.version} onChange={e=>p.setVersion(e.target.value)}/></Field>{suggestedVersion&&<button type="button" className="mt-1.5 text-[11px] font-medium text-primary" onClick={()=>p.setVersion(suggestedVersion)}>Use suggested {suggestedVersion}</button>}</div>
+              <Field label="Release channel"><select className="control" value={p.channel} onChange={e=>p.setChannel(e.target.value)}>{(p.availableChannels?.length?p.availableChannels:["stable"]).map((x:string)=><option key={x}>{x}</option>)}</select></Field>
+              {!base&&<><Field label="Minimum Base version"><input className="control" value={p.minBase} onChange={e=>p.setMinBase(e.target.value)}/></Field><Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e=>p.setProtocol(e.target.value)}/></Field></>}
+            </div>
+            <div className="mt-5"><Field label={base?"Operator notes":"Developer notes"}><textarea className="control min-h-20 resize-y" placeholder="Optional context for the generated release log." value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
+          </div>
+        </section>
+
+        {inspected && <section className="release-surface overflow-hidden">
+          <div className="orbit-section-bar"><SectionHead icon={GitCommit} title="Detected changes" detail="Live compare data returned from the configured source repository."/></div>
+          <div className="grid lg:grid-cols-2">
+            <div className="min-w-0 border-b lg:border-b-0 lg:border-r">
+              <div className="orbit-subhead">COMMITS <span>{p.commits.length}</span></div>
+              <div className="max-h-[360px] overflow-auto">{p.commits.length?p.commits.map((commit:any,i:number)=><div key={commit.sha||commit.id||i} className="orbit-change-row"><code>{String(commit.sha||commit.id||"").slice(0,7)||"commit"}</code><span>{commit.subject||commit.message||"Commit"}</span></div>):<EmptyInline text="No commits returned for this source range."/>}</div>
+            </div>
+            <div className="min-w-0">
+              <div className="orbit-subhead">CHANGED FILES <span>{p.files.length}</span></div>
+              <div className="max-h-[360px] overflow-auto">{p.files.length?p.files.map((f:any)=><div key={f.filename} className="orbit-file-row"><StatusPill text={f.status||"changed"}/><code title={f.filename}>{f.filename}</code><span>+{f.additions||0} −{f.deletions||0}</span></div>):<EmptyInline text="No changed files returned."/>}</div>
+            </div>
+          </div>
+        </section>}
+
+        <section className="release-surface overflow-hidden">
+          <div className="orbit-section-bar">
+            <SectionHead icon={ScrollText} title={base?"Base Deployment Log":"Update Changelog"} detail="Generated from source inspection. Review and edit before dispatch."/>
+            <span className="orbit-status-chip">{inspected?"EDITABLE":"WAITING FOR INSPECTION"}</span>
+          </div>
+          <div className="grid xl:grid-cols-[minmax(0,1fr)_260px]">
+            <div className="p-4"><textarea className="control mt-0 min-h-[410px] resize-y font-mono text-[11px] leading-5" value={p.changelogDraft||""} onChange={e=>p.setChangelogDraft(e.target.value)} placeholder="Inspect source to generate this release document."/></div>
+            <div className="border-t p-4 xl:border-l xl:border-t-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Review gate</p>
+              <div className="mt-3 space-y-1"><GateRow label="Source inspection" ok={inspected}/><GateRow label="Release version" ok={Boolean(p.version)}/>{!base&&<GateRow label="Components selected" ok={p.components.length>0}/>}<GateRow label="Release document" ok={Boolean(p.changelogDraft?.trim())}/></div>
+              <div className="mt-5 border-t pt-4"><button className="button-primary w-full" disabled={!canStart || !inspected || !p.changelogDraft?.trim() || p.busy==="start"} onClick={p.onStart}>{p.busy==="start"?<Loader2 className="animate-spin" size={15}/>:<Rocket size={15}/>} {p.busy==="start"?"Sending…":base?"Build & send Base release":"Build & send update"}</button><p className="mt-2 text-[10px] leading-4 text-muted-foreground">{base?"The Base worker builds the complete package and sends it to License Master.":"The Engine worker packages the selected update and sends it to License Master."}</p></div>
+            </div>
+          </div>
+        </section>
+
+        {p.run && <LiveConsole run={p.run} repo={p.runRepo} handoff={p.handoff} />}
+      </div>
+
+      <aside className="space-y-4">
+        {!base && <section className="release-surface overflow-hidden">
+          <div className="orbit-section-bar"><SectionHead icon={ShieldCheck} title="Compatibility" detail="Required update gates."/></div>
+          <div className="p-4 space-y-1">
+            <GateRow label="Published Base resolved" ok={Boolean(p.baseline?.baseBaseline?.version || p.minBase)} />
+            <GateRow label="Minimum Base version" ok={Boolean(p.minBase)} />
+            <GateRow label="Deployer protocol" ok={Boolean(p.protocol)} />
+            <GateRow label="Components selected" ok={p.components.length>0} />
+            <GateRow label="Source inspected" ok={inspected} />
+          </div>
+          <div className="border-t px-4 py-3 text-[10px] text-muted-foreground">Current compatibility floor: <code className="text-foreground">Base {p.minBase || "—"} · Protocol {p.protocol || "—"}</code></div>
+        </section>}
+
+        <section className="release-surface overflow-hidden">
+          <div className="orbit-section-bar"><SectionHead icon={PackageCheck} title={base?"Release package":"Manifest preview"} detail={base?"Worker-generated package requirements.":"Current update handoff inputs; file targets are generated by the worker."}/></div>
+          <div className="p-4 space-y-1">
+            <TechRow label="Product" value="orbitfs_base"/>
+            <TechRow label="Type" value={base?"base":"update"}/>
+            <TechRow label="Version" value={p.version||"Not set"}/>
+            <TechRow label="Channel" value={p.channel}/>
+            <TechRow label="Source SHA" value={sourceSha?sourceSha.slice(0,8):"Waiting"}/>
+            {!base&&<><TechRow label="Components" value={p.components.length?p.components.map((x:string)=>x.toUpperCase()).join(", "):"None"}/><TechRow label="Min Base" value={p.minBase||"Not set"}/><TechRow label="Protocol" value={p.protocol||"Not set"}/></>}
+            <TechRow label="Changed files" value={inspected?String(p.files.length):"Waiting"}/>
+            <TechRow label="Artifact" value={p.run?(runDone?(runGood?"Built":"Failed"):"Building"):"Waiting"}/>
+            <TechRow label="Manifest" value={p.handoff?"Received by License Master":p.run?"Generated by worker":"Waiting"}/>
+            <TechRow label="SHA-256" value={p.handoff?"Reported in handoff":p.run?"Calculated by worker":"Waiting"}/>
+          </div>
+        </section>
+
+        <section className="release-surface overflow-hidden">
+          <div className="orbit-section-bar"><SectionHead icon={ShieldCheck} title="Technical handoff" detail={base?"Base release authority flow.":"Update authority and publication flow."}/></div>
+          <div className="p-4">
+            <HandoffRow label="Dev Panel" detail="Prepare candidate" state={inspected?"passed":"waiting"}/>
+            <HandoffRow label={base?"Base worker":"Engine worker"} detail="Build release artifact" state={p.run?(runDone?(runGood?"passed":"failed"):"running"):"waiting"}/>
+            <HandoffRow label="License Master" detail={base?"Validate & approve":"Technical validation"} state={validation|| (p.handoff?"running":"waiting")}/>
+            {!base&&<HandoffRow label="Billing Store" detail="Final publication review" state={validation==="passed"||validation==="approved"?"next":"waiting"}/>}
+          </div>
+          <div className="border-t px-4 py-3 text-[10px] leading-4 text-muted-foreground">{base?"License Master remains the technical release authority. This page does not deploy customer infrastructure.":"License Master remains technical authority. Billing Store owns customer-facing publication."}</div>
+        </section>
+      </aside>
+    </div>
   </section>;
 }
+
+function PipelineNode({n,label,state}:any){
+  const good=state==="passed", active=state==="running", bad=state==="failed";
+  return <div className={`orbit-pipeline-node ${good?"is-good":active?"is-active":bad?"is-bad":""}`}><span>{n}</span><b>{label}</b><small>{state}</small></div>;
+}
+function TechStat({label,value,mono,good}:any){return <div className="orbit-tech-stat"><span>{label}</span><strong className={`${mono?"font-mono":""} ${good?"text-emerald-300":""}`}>{value}</strong></div>}
+function TechRow({label,value}:any){return <div className="orbit-tech-row"><span>{label}</span><code>{value}</code></div>}
+function GateRow({label,ok}:any){return <div className="orbit-gate-row"><span>{ok?<CheckCircle2 size={14}/>:<Clock3 size={14}/>}</span><p>{label}</p><small>{ok?"ready":"waiting"}</small></div>}
+function HandoffRow({label,detail,state}:any){const good=["passed","success","approved","received"].includes(state), active=["running","pending"].includes(state), bad=["failed","failure"].includes(state);return <div className="orbit-handoff-row"><span className={`orbit-handoff-icon ${good?"good":active?"active":bad?"bad":""}`}>{good?<CheckCircle2 size={14}/>:bad?<XCircle size={14}/>:<Clock3 size={14}/>}</span><div><b>{label}</b><small>{detail}</small></div><code>{state}</code></div>}
+function EmptyInline({text}:any){return <div className="p-5 text-center text-[11px] text-muted-foreground">{text}</div>}
 
 function buildChangelog(type: ReleaseType, data: any) {
   const base = type === "base";
