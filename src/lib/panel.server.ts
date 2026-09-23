@@ -201,8 +201,25 @@ async function requestJson(url:string,init:RequestInit={}){
  } catch (error:any) {
    throw new Error(`Network request failed: ${url} · ${error?.message || "fetch failed"}`);
  }
- const text=await r.text();let body:any=null;try{body=text?JSON.parse(text):null}catch{body={error:text||r.statusText}}
- if(!r.ok)throw new Error(body?.error||body?.message||`Request failed (${r.status}) at ${url}`);
+ const text=await r.text();
+ const contentType=(r.headers.get("content-type")||"").toLowerCase();
+ let body:any=null;
+ if(text){
+   try{ body=JSON.parse(text); }
+   catch{
+     const looksHtml=contentType.includes("text/html")||/^\\s*<!doctype html/i.test(text)||/^\\s*<html/i.test(text);
+     body={error:looksHtml?null:text.trim().slice(0,500)};
+   }
+ }
+ if(!r.ok){
+   if(contentType.includes("text/html")||/^\\s*<!doctype html/i.test(text)||/^\\s*<html/i.test(text)){
+     throw new Error(`License Master API returned HTTP ${r.status} for ${new URL(url).pathname}. The configured LICENSE_MASTER_URL may point at a deployment that does not expose this API route.`);
+   }
+   throw new Error(body?.error||body?.message||`Request failed (${r.status}) at ${url}`);
+ }
+ if(text&&!body){
+   throw new Error(`Expected JSON from ${url}, but the response could not be parsed.`);
+ }
  return body;
 }
 async function github(path:string,init:RequestInit={}){
