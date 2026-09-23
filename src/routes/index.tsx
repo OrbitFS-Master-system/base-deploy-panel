@@ -157,6 +157,7 @@ function Index() {
       setFiles(r.files || []);
       setCommits(r.commits || []);
       setBaseline(r.baseline || null);
+      if (type === "engine" && r.baseBaseline?.version) setMinBase(String(r.baseBaseline.version));
       setChangelogTemplate(type === "base" ? "base_deployment_log" : "update_changelog");
       setChangelogDraft(buildChangelog(type, {
         version,
