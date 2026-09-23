@@ -64,11 +64,11 @@ export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:
  return {releases:releases?.releases||[],channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
 });
 
-export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";from?:string}})=>{
+export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";from?:string;channel?:string}})=>{
  readSession(data.token);
  const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF;
  const releaseType=data.type==="base"?"base":"update";
- const channel=normalizeChannel("stable");
+ const channel=normalizeChannel(data.channel||"stable");
  const branch=await github(`/repos/${repo}/git/ref/heads/${encodeURIComponent(ref)}`);
  const head=branch?.object?.sha;if(!head)throw new Error(`Could not resolve ${repo}@${ref}`);
  let baseline:any=null;
