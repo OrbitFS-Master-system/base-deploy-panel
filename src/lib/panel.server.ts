@@ -457,9 +457,11 @@ async function licenseMaster(path:string,init:RequestInit={}){
 }
 
 
+const OPERATIONS_CI_WORKFLOW=process.env.OPERATIONS_CI_WORKFLOW||"ci.yml";
+const OPERATIONS_DEPLOY_WORKFLOW=process.env.OPERATIONS_DEPLOY_WORKFLOW||"production-deploy.yml";
 const OPERATIONS_REPOS={
- licenseManager:{repo:"lucaskerim123/Custom-licence-manager",label:"Custom License Manager",ci:"ci.yml",deploy:"production-deploy.yml"},
- billingStore:{repo:"lucaskerim123/V2_Billing_Store",label:"V2 Billing Store",ci:"ci.yml",deploy:"production-deploy.yml"},
+ licenseManager:{repo:process.env.LICENSE_MANAGER_REPO||"lucaskerim123/Custom-licence-manager",label:"Custom License Manager",ci:OPERATIONS_CI_WORKFLOW,deploy:OPERATIONS_DEPLOY_WORKFLOW},
+ billingStore:{repo:process.env.BILLING_STORE_REPO||"lucaskerim123/V2_Billing_Store",label:"V2 Billing Store",ci:OPERATIONS_CI_WORKFLOW,deploy:OPERATIONS_DEPLOY_WORKFLOW},
 } as const;
 
 type OperationsSystem=keyof typeof OPERATIONS_REPOS;
