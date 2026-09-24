@@ -1165,3 +1165,56 @@ tbody tr:hover{background:rgba(255,255,255,.018)}
 .orbit-login-card h1{margin:.5rem 0 0;font-size:2rem;letter-spacing:-.045em}
 .orbit-login-copy{margin-top:.7rem;color:#8694a6;font-size:.72rem;line-height:1.65}
 .orbit-login-authority{display:flex;gap:.55rem;margin-top:1rem;border-top:1px solid rgba(255,255,255,.055);padding-top:1rem;color:#68778b;font-size:.6rem;line-height:1.5}
+
+
+/* High-contrast semantic status badges */
+.orbit-status-pill{
+  min-height:24px;
+  border-width:1px;
+  border-style:solid;
+  padding:.24rem .55rem;
+  font-size:.56rem;
+  font-weight:750;
+  letter-spacing:.01em;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+.orbit-status-tone-success{
+  border-color:rgba(70,220,160,.45)!important;
+  background:rgba(37,184,126,.19)!important;
+  color:#86f3c5!important;
+}
+.orbit-status-tone-warning{
+  border-color:rgba(242,181,66,.46)!important;
+  background:rgba(202,137,26,.18)!important;
+  color:#ffd88a!important;
+}
+.orbit-status-tone-danger{
+  border-color:rgba(255,91,105,.48)!important;
+  background:rgba(202,48,64,.2)!important;
+  color:#ff9aa4!important;
+}
+.orbit-status-tone-info{
+  border-color:rgba(104,145,255,.5)!important;
+  background:rgba(70,101,219,.2)!important;
+  color:#a7bbff!important;
+}
+.orbit-status-tone-neutral{
+  border-color:rgba(171,183,199,.25)!important;
+  background:rgba(112,126,145,.14)!important;
+  color:#c2ccd8!important;
+}
+
+/* Tightening pass */
+.orbit-screen{max-width:100%}
+.orbit-panel-toolbar{min-height:54px;padding:.7rem .9rem}
+.orbit-metric{min-height:104px;padding:.85rem .9rem}
+.orbit-metric-value{font-size:1.75rem}
+.orbit-reference-head h1{font-size:2.15rem}
+.orbit-reference-head span{margin-top:.4rem}
+.orbit-dashboard-reference-grid,
+.orbit-dashboard-bottom-grid,
+.orbit-registry-grid{gap:.8rem}
+.orbit-release-row,.orbit-registry-row{padding:.62rem .8rem}
+.orbit-sidebar .orbit-nav-item{min-height:46px;padding:.5rem .58rem}
+.orbit-sidebar .orbit-nav-icon{width:29px;height:29px}
+.orbit-sidebar .orbit-authority-card{padding:.7rem}
