@@ -2,7 +2,8 @@ import {useEffect,useMemo,useState} from "react";
 import {Activity,CheckCircle2,ChevronRight,Clock3,FileCode2,GitCommit,Github,History,Layers3,Loader2,PackageCheck,RefreshCw,Rocket,ScrollText,Settings2,ShieldCheck,Terminal,XCircle} from "lucide-react";
 import {controlRelease} from "@/lib/panel.server";
 
-function StatusPill({text}:{text:string}){return <span className={`orbit-status-pill orbit-status-${String(text||"").toLowerCase().replace(/[^a-z0-9]+/g,"-")}`}>{text}</span>}
+function statusTone(text:any){const s=String(text||"").toLowerCase();if(["failed","failure","rejected","error","offline","unavailable","disabled","unpublished"].some(x=>s.includes(x)))return "danger";if(["pending","queued","running","draft","waiting","review","request","assigned","next"].some(x=>s.includes(x)))return "warning";if(["published","approved","passed","success","connected","enabled","ready","active","received","open"].some(x=>s.includes(x)))return "success";if(["archived","idle","closed","not run","not validated"].some(x=>s.includes(x)))return "neutral";return "info"}
+function StatusPill({text}:{text:string}){return <span className={`orbit-status-pill orbit-status-tone-${statusTone(text)}`}>{text}</span>}
 function SectionHead({icon:Icon,title,detail}:any){return <div className="orbit-section-head"><span className="orbit-section-icon"><Icon size={15}/></span><div><h2>{title}</h2><p>{detail}</p></div></div>}
 function Gate({label,ok}:{label:string;ok:boolean}){return <div className="orbit-gate"><span>{label}</span><strong className={ok?"is-ready":""}>{ok?<CheckCircle2 size={13}/>:<Clock3 size={13}/>} {ok?"Ready":"Waiting"}</strong></div>}
 function Row({label,value}:{label:string;value:any}){return <div className="orbit-kv-row"><span>{label}</span><code>{String(value??"—")}</code></div>}
