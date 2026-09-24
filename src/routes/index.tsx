@@ -758,17 +758,24 @@ function ReleasesPage({releases,onBase,onEngine}:any) {
   </section>;
 }
 
-function MonitoringPage({releases,run,connected}:any) {
+function MonitoringPage({releases,run,connected,session}:any) {
   const series=releaseSeries(releases);
+  const [repos,setRepos]=useState<any[]>([]);
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{let live=true;(async()=>{try{const r=await getRepositoryStatus({data:{token:session.token}});if(live)setRepos(r.repositories||[])}catch{}finally{if(live)setLoading(false)}})();return()=>{live=false}},[session.token,run?.id,run?.status,run?.conclusion]);
+  const failed=releases.filter((r:any)=>r.manifest?.validation?.status==="failed").length;
+  const pending=releases.filter((r:any)=>r.review_status==="pending").length;
   return <section className="space-y-4">
-    <PageHead title="Release monitoring" detail="Live workflow state, handoff health, and recent release activity."/>
-    <div className="grid gap-4 xl:grid-cols-[1.5fr_.8fr]">
+    <PageHead title="Release Monitoring" detail="Live workflow state, repository workers, License Master validation, and recent release activity."/>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Master API" value={connected?"Online":"Offline"} detail="License Master connection"/><Metric label="Validation failures" value={failed} detail="Visible failed validations"/><Metric label="Pending review" value={pending} detail="Candidates awaiting technical review"/><Metric label="Active workflow" value={run&&!run.conclusion?"1":"0"} detail={run?.id?"Run #"+run.id:"No active monitored run"}/></div>
+    <div className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
       <section className="release-surface p-4"><SectionHead icon={Activity} title="7-day release activity" detail="Release records created per day."/><MiniLineChart data={series}/></section>
-      <section className="release-surface p-4"><SectionHead icon={Gauge} title="Current state" detail="Live control-plane status."/><div className="mt-4 space-y-2"><StatusRow label="License Master" value={connected?"Connected":"Unavailable"} good={connected}/><StatusRow label="Workflow" value={run?(run.conclusion||run.status||"queued"):"Idle"} good={run?.conclusion==="success"}/><StatusRow label="Visible releases" value={String(releases.length)}/></div></section>
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={Github} title="Release workers" detail={loading?"Loading latest runs…":"Latest GitHub release-builder status"}/></div><div>{repos.map((row:any)=><div key={row.key} className="border-b p-4 last:border-b-0"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold">{row.key==="base"?"Base worker":"Engine worker"}</p><p className="mt-1 text-[10px] text-muted-foreground">{row.repo} · {row.ref}</p></div><StatusPill text={row.run?(row.run.conclusion||row.run.status||"queued"):"idle"}/></div>{row.run?.html_url&&<a className="mt-3 inline-flex text-[10px] font-medium text-primary" href={row.run.html_url} target="_blank" rel="noreferrer">Open run #{row.run.id} →</a>}</div>)}</div></section>
     </div>
     <ActivityPage releases={releases} run={run}/>
   </section>;
 }
+
 
 function RepositoriesPage({data,session,onBase,onEngine}:any) {
   const [rows,setRows]=useState<any[]>([]);
