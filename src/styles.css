@@ -650,3 +650,129 @@ body {
 @media (min-width:1024px) {
   main { padding-left:2rem !important; padding-right:2rem !important; }
 }
+
+
+/* Dashboard composition + mobile control navigation */
+.orbit-mobile-nav{
+  position:sticky;
+  top:66px;
+  z-index:25;
+  border-bottom:1px solid rgba(255,255,255,.07);
+  background:rgba(7,9,13,.92);
+  backdrop-filter:blur(18px);
+}
+.orbit-mobile-nav-track{
+  display:flex;
+  gap:.4rem;
+  overflow-x:auto;
+  padding:.6rem .75rem;
+  scrollbar-width:none;
+}
+.orbit-mobile-nav-track::-webkit-scrollbar{display:none}
+.orbit-mobile-nav-item{
+  position:relative;
+  display:inline-flex;
+  flex:0 0 auto;
+  align-items:center;
+  gap:.4rem;
+  min-height:36px;
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:10px;
+  background:rgba(255,255,255,.025);
+  padding:.48rem .65rem;
+  color:#8997aa;
+  font-size:.68rem;
+  font-weight:600;
+}
+.orbit-mobile-nav-item.is-active{
+  border-color:rgba(110,151,255,.28);
+  background:rgba(91,140,255,.12);
+  color:#edf3ff;
+}
+.orbit-mobile-nav-item i{
+  width:6px;height:6px;border-radius:999px;background:#4fe1a1;
+  box-shadow:0 0 10px rgba(79,225,161,.55)
+}
+.orbit-dashboard-hero{
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  gap:1.35rem;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:18px;
+  padding:1.4rem;
+  background:
+    radial-gradient(circle at 90% 12%,rgba(91,140,255,.2),transparent 20rem),
+    linear-gradient(145deg,rgba(18,24,35,.98),rgba(10,14,20,.98));
+  box-shadow:0 24px 54px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.035);
+}
+.orbit-dashboard-kicker{
+  display:inline-flex;
+  align-items:center;
+  gap:.45rem;
+  color:#8da0b6;
+  font-size:.62rem;
+  font-weight:700;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.orbit-dashboard-kicker span{
+  width:7px;height:7px;border-radius:999px;background:#64748b;
+}
+.orbit-dashboard-kicker .is-online{
+  background:#4fe1a1;box-shadow:0 0 12px rgba(79,225,161,.45)
+}
+.orbit-dashboard-kicker .is-offline{background:#ff6b74}
+.orbit-dashboard-hero h1{
+  margin:.7rem 0 0;
+  font-size:clamp(2.1rem,8vw,3.5rem);
+  line-height:.98;
+  font-weight:720;
+  letter-spacing:-.055em;
+}
+.orbit-dashboard-hero p{
+  margin:.85rem 0 0;
+  max-width:760px;
+  color:#8f9cad;
+  font-size:.86rem;
+  line-height:1.7;
+}
+.orbit-dashboard-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.55rem;
+}
+.orbit-metric{
+  min-height:118px;
+  border:1px solid rgba(255,255,255,.075);
+  border-radius:14px;
+  background:linear-gradient(180deg,rgba(17,23,32,.96),rgba(11,15,22,.96));
+  padding:1rem 1.05rem;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
+}
+.orbit-metric-label{
+  color:#738297;
+  font-size:.58rem;
+  font-weight:700;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.orbit-metric-value{
+  margin-top:.7rem;
+  font-size:2rem;
+  line-height:1;
+  font-weight:700;
+  letter-spacing:-.035em;
+}
+.orbit-metric-detail{
+  margin-top:.45rem;
+  color:#7f8ea2;
+  font-size:.66rem;
+  line-height:1.45;
+}
+@media (min-width:900px){
+  .orbit-dashboard-hero{
+    flex-direction:row;
+    align-items:flex-end;
+  }
+}
