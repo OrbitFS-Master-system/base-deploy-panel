@@ -259,7 +259,7 @@ export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({da
       const outcome=String(run.conclusion||"failure");
       const errorText=failure?.lines?.join("\n")||failure?.error||null;
       await sb.from("panel_release_attempts").update({status:outcome,error_summary:failure?.error||null,error_output:errorText,completed_at:new Date().toISOString(),run_url:run.html_url||null}).eq("run_id",data.runId);
-      await sb.from("panel_release_drafts").update({status:outcome==="success"?"handed_off":"failed",last_error:outcome==="success"?null:errorText,last_run_url:run.html_url||null,updated_at:new Date().toISOString()}).eq("last_run_id",data.runId);
+      await sb.from("panel_release_drafts").update({status:outcome==="success"?"handed_off":"draft",last_error:outcome==="success"?null:errorText,last_run_url:run.html_url||null,updated_at:new Date().toISOString()}).eq("last_run_id",data.runId);
     }else{
       const sb=authClient();
       await sb.from("panel_release_attempts").update({status:"in_progress",run_url:run.html_url||null}).eq("run_id",data.runId);
@@ -386,7 +386,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  }catch(error:any){
    const message=error?.message||"Unable to dispatch release workflow.";
    await sb.from("panel_release_attempts").update({status:"failure",error_summary:message,error_output:message,completed_at:new Date().toISOString()}).eq("id",attemptRow.id);
-   await sb.from("panel_release_drafts").update({status:"failed",last_error:message,updated_at:new Date().toISOString()}).eq("id",draft.id);
+   await sb.from("panel_release_drafts").update({status:"draft",last_error:message,updated_at:new Date().toISOString()}).eq("id",draft.id);
    throw error;
  }
  if(runId){
