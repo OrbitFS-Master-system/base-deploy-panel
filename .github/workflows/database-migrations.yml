@@ -24,21 +24,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check migration configuration
+        id: config
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d supabase/migrations || { echo "::error::supabase/migrations directory is missing"; exit 1; }
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SUPABASE_DB_URL is not configured for the Dev Panel production environment. Pending migrations were NOT applied."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Migration files:"
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print | sort
+
       - name: Setup Supabase CLI
+        if: ${{ steps.config.outputs.configured == 'true' }}
         uses: supabase/setup-cli@v1
         with:
           version: latest
 
-      - name: Validate migration configuration
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: |
-          test -n "$SUPABASE_DB_URL" || { echo "::error::SUPABASE_DB_URL GitHub secret is not configured"; exit 1; }
-          test -d supabase/migrations || { echo "::error::supabase/migrations directory is missing"; exit 1; }
-          echo "Migration files:"
-          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print | sort
-
       - name: Apply pending migrations
+        if: ${{ steps.config.outputs.configured == 'true' }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: supabase db push --db-url "$SUPABASE_DB_URL"
+
+      - name: Migration configuration reminder
+        if: ${{ steps.config.outputs.configured != 'true' }}
+        run: echo "Dev Panel database migration automation is ready; configure the production SUPABASE_DB_URL GitHub secret to enable application."
