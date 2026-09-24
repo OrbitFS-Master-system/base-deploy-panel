@@ -176,11 +176,20 @@ export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:
  readSession(data.token);
  const releaseType=data.type==="base"?"base":"update",channel=normalizeChannel(data.channel),product="orbitfs_base";
  const [releases,channels]=await Promise.all([
-  licenseMaster(`/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`),
+  licenseMaster(`/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=true`),
   licenseMaster(`/release-channels?include_disabled=false`)
  ]);
  const availableChannels=Array.isArray(channels?.channels)?channels.channels.filter((x:any)=>x?.enabled===true).map((x:any)=>String(x.channel).trim().toLowerCase()).filter(Boolean):[];
  return {releases:releases?.releases||[],channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
+});
+
+export const getReleaseLifecycleEvents=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;limit?:number}})=>{
+ readSession(data.token);
+ const limit=Math.min(500,Math.max(1,Number(data.limit||200)));
+ const sb=authClient();
+ const {data:events,error}=await sb.from("panel_release_events").select("*").order("occurred_at",{ascending:false}).limit(limit);
+ if(error)throw new Error(error.message||"Unable to load Dev Panel release lifecycle history");
+ return {events:events||[]};
 });
 
 export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";from?:string;channel?:string}})=>{
