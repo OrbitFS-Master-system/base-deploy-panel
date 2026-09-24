@@ -1,21 +1,18 @@
--- Dev Panel local access model.
--- This is intentionally separate from licensing/release authority.
--- Owner manages users, groups and permissions. Admin is operational only.
+-- Dev Panel access model layered onto the existing Custom License Manager users table.
+-- Dev Panel authentication already uses public.users from the connected Custom License Manager Supabase.
+-- Roles are intentionally limited to Owner and Admin.
 
-create extension if not exists pgcrypto;
-
-create table if not exists public.users (
-  id uuid primary key default gen_random_uuid(),
-  email text not null unique,
-  password_hash text not null,
-  password_salt text not null,
-  display_name text not null,
-  role text not null default 'admin' check (role in ('owner','admin')),
-  status text not null default 'active' check (status in ('active','disabled')),
-  last_login_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid='public.users'::regclass and conname='users_role_check_v2'
+  ) then
+    alter table public.users drop constraint if exists users_role_check;
+    alter table public.users
+      add constraint users_role_check_v2 check (role in ('owner','admin'));
+  end if;
+end $$;
 
 create table if not exists public.access_groups (
   id uuid primary key default gen_random_uuid(),
@@ -43,22 +40,21 @@ create table if not exists public.panel_access_audit (
   created_at timestamptz not null default now()
 );
 
-alter table public.users enable row level security;
 alter table public.access_groups enable row level security;
 alter table public.user_access_groups enable row level security;
 alter table public.panel_access_audit enable row level security;
 
-revoke all on public.users from anon, authenticated;
+-- These tables are server-only. The Dev Panel backend uses the service role;
+-- browser clients have no direct Data API access.
 revoke all on public.access_groups from anon, authenticated;
 revoke all on public.user_access_groups from anon, authenticated;
 revoke all on public.panel_access_audit from anon, authenticated;
 
-grant all on public.users to service_role;
 grant all on public.access_groups to service_role;
 grant all on public.user_access_groups to service_role;
 grant all on public.panel_access_audit to service_role;
 
-create index if not exists idx_users_status on public.users(status);
 create index if not exists idx_users_role on public.users(role);
 create index if not exists idx_user_access_groups_group on public.user_access_groups(group_id);
 create index if not exists idx_panel_access_audit_created on public.panel_access_audit(created_at desc);
+create index if not exists idx_panel_access_audit_actor on public.panel_access_audit(actor_id);
