@@ -455,3 +455,158 @@ async function github(path:string,init:RequestInit={}){
 async function licenseMaster(path:string,init:RequestInit={}){
  return requestJson(`${masterUrl()}${path}`,{...init,headers:{authorization:`Bearer ${required("LICENSE_MASTER_API_TOKEN")}`,...(init.headers||{})}});
 }
+
+
+const OPERATIONS_REPOS={
+ licenseManager:{repo:"lucaskerim123/Custom-licence-manager",label:"Custom License Manager",ci:"ci.yml",deploy:"production-deploy.yml"},
+ billingStore:{repo:"lucaskerim123/V2_Billing_Store",label:"V2 Billing Store",ci:"ci.yml",deploy:"production-deploy.yml"},
+} as const;
+
+type OperationsSystem=keyof typeof OPERATIONS_REPOS;
+
+function requireOperationsUser(token:string){
+ const user=readSession(token);
+ if(!["owner","admin"].includes(String(user.role||"").toLowerCase()))throw new Error("Admin access required");
+ return user;
+}
+function operationsConfig(system:string){
+ const cfg=OPERATIONS_REPOS[system as OperationsSystem];
+ if(!cfg)throw new Error("Unknown Operations system");
+ return cfg;
+}
+function cleanOperationsRun(run:any){
+ return run?{id:run.id,status:run.status,conclusion:run.conclusion,run_number:run.run_number,head_sha:run.head_sha,created_at:run.created_at,updated_at:run.updated_at,html_url:run.html_url,name:run.name}:null;
+}
+async function operationsGithubText(path:string){
+ const token=required("ORBITFS_RELEASE_DISPATCH_TOKEN");
+ const response=await fetch("https://api.github.com"+path,{headers:{accept:"application/vnd.github+json",authorization:"Bearer "+token,"x-github-api-version":process.env.GITHUB_API_VERSION||"2022-11-28"},cache:"no-store",redirect:"follow"});
+ const text=await response.text();
+ if(!response.ok)throw new Error("GitHub API returned HTTP "+response.status+".");
+ return text;
+}
+function cleanOperationLogLine(line:string){
+ return line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*/,"").replace(/^.*?##\[error\]\s*/,"").trim();
+}
+function extractOperationFailure(log:string){
+ const lines=String(log||"").split(/\r?\n/).map(x=>x.trimEnd()).filter(Boolean);
+ const pattern=/##\[error\]|(?:npm ERR!|pnpm ERR!|yarn error|Error:|error TS\d+|Type error|Build failed|failed with|Process completed with exit code|ELIFECYCLE|Expected .+ got|SyntaxError|ReferenceError|Module not found|Cannot find module|ENOENT|EADDRINUSE|ERR_[A-Z_]+|fatal:|FATAL|ERROR)/i;
+ const hits:number[]=[];
+ for(let i=0;i<lines.length;i++)if(pattern.test(lines[i]))hits.push(i);
+ if(!hits.length)return null;
+ const selected:string[]=[];const seen=new Set<string>();
+ for(const i of hits)for(const line of lines.slice(Math.max(0,i-8),Math.min(lines.length,i+4))){const clean=cleanOperationLogLine(line);if(clean&&!seen.has(clean)){seen.add(clean);selected.push(clean)}}
+ return {error:selected[selected.length-1]||"Workflow job failed.",preceding:[],lines:selected.slice(-120)};
+}
+function fallbackOperationFailure(job:any,logTail:string){
+ if(job.conclusion!=="failure")return null;
+ const lines:string[]=[];
+ for(const step of job.steps||[])if(step.conclusion==="failure")lines.push("Failed step: "+step.name);
+ lines.push(...String(logTail||"").split(/\r?\n/).map(cleanOperationLogLine).filter(Boolean).slice(-80));
+ const unique=[...new Set(lines)].slice(-120);
+ if(!unique.length)unique.push("GitHub reported this job as failed, but no console log text was available yet.");
+ return {error:unique[unique.length-1],preceding:[],lines:unique};
+}
+async function operationsRunDetail(cfg:(typeof OPERATIONS_REPOS)[OperationsSystem]){
+ const [ciRows,deployRows,ref]=await Promise.all([
+  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.ci+"/runs?branch=main&per_page=1"),
+  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&per_page=1"),
+  github("/repos/"+cfg.repo+"/git/ref/heads/main"),
+ ]);
+ const ciRun=ciRows?.workflow_runs?.[0]||null;
+ const deployRun=deployRows?.workflow_runs?.[0]||null;
+ const run=[ciRun,deployRun].filter(Boolean).find((x:any)=>x.status!=="completed")||ciRun||deployRun||null;
+ const currentSha=String(ref?.object?.sha||"");
+ if(!run)return {repo:cfg.repo,label:cfg.label,currentSha,run:null,latestDeployment:cleanOperationsRun(deployRun),jobs:[],failure:null,chatPrompt:null,monitoring:"Workflow"};
+ const jobsResult=await github("/repos/"+cfg.repo+"/actions/runs/"+run.id+"/jobs?per_page=100");
+ const jobs=await Promise.all((jobsResult?.jobs||[]).map(async(job:any)=>{
+  let failure:any=null,logTail="",logError="";
+  try{const logs=await operationsGithubText("/repos/"+cfg.repo+"/actions/jobs/"+job.id+"/logs");const lines=logs.split(/\r?\n/).filter(Boolean);logTail=lines.slice(-250).join("\n");failure=extractOperationFailure(logs)}
+  catch(error:any){logError=error?.message||"Unable to retrieve GitHub job logs."}
+  if(!failure)failure=fallbackOperationFailure(job,logTail);
+  return {id:job.id,name:job.name,status:job.status,conclusion:job.conclusion,started_at:job.started_at,completed_at:job.completed_at,html_url:job.html_url,steps:(job.steps||[]).map((s:any)=>({name:s.name,status:s.status,conclusion:s.conclusion,started_at:s.started_at,completed_at:s.completed_at})),failure,logTail,logError};
+ }));
+ const failedJob=jobs.find((j:any)=>j.conclusion==="failure"||j.failure);
+ const failure=failedJob?.failure||null;
+ const chatPrompt=failure?[
+  "Fix this failed GitHub Actions job.","",
+  "Repository: https://github.com/"+cfg.repo,
+  "Branch: main",
+  "Commit: "+run.head_sha,
+  "Workflow: "+(run.name||"Unknown"),
+  "Run: "+(failedJob?.html_url||run.html_url),
+  "Failed job: "+(failedJob?.name||"Unknown"),"",
+  "Captured error/output:",...failure.lines,"",
+  "Trace the root cause in the repository, fix the implementation rather than masking the failure, and run the relevant validation/build checks. Do not deploy automatically.",
+ ].join("\n"):null;
+ return {repo:cfg.repo,label:cfg.label,currentSha,run:cleanOperationsRun(run),ciRun:cleanOperationsRun(ciRun),deployRun:cleanOperationsRun(deployRun),latestDeployment:cleanOperationsRun(deployRun),jobs,failure,chatPrompt,monitoring:run.name||"Workflow"};
+}
+
+export const getOperationsState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ requireOperationsUser(data.token);
+ const entries=await Promise.all((Object.keys(OPERATIONS_REPOS) as OperationsSystem[]).map(async key=>[key,await operationsRunDetail(OPERATIONS_REPOS[key])] as const));
+ return {checkedAt:new Date().toISOString(),systems:Object.fromEntries(entries)};
+});
+
+async function findOperationsRun(cfg:(typeof OPERATIONS_REPOS)[OperationsSystem],workflow:string,startedAt:number){
+ for(let attempt=0;attempt<8;attempt++){
+  const runs=await github("/repos/"+cfg.repo+"/actions/workflows/"+workflow+"/runs?branch=main&per_page=5");
+  const run=(runs?.workflow_runs||[]).find((x:any)=>new Date(x.created_at).getTime()>=startedAt-2000);
+  if(run)return cleanOperationsRun(run);
+  await new Promise(resolve=>setTimeout(resolve,750));
+ }
+ return null;
+}
+
+export const runOperation=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;system:OperationsSystem;action:"ci"|"deploy"|"override-deploy"}})=>{
+ requireOperationsUser(data.token);
+ const cfg=operationsConfig(data.system);
+ const action=String(data.action||"");
+ if(!["ci","deploy","override-deploy"].includes(action))throw new Error("Unknown Operations action");
+ const workflow=action==="ci"?cfg.ci:cfg.deploy;
+ if(action==="deploy"){
+  const [latest,ref]=await Promise.all([
+   github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.ci+"/runs?branch=main&per_page=1"),
+   github("/repos/"+cfg.repo+"/git/ref/heads/main"),
+  ]);
+  const latestRun=latest?.workflow_runs?.[0],mainSha=String(ref?.object?.sha||"");
+  if(!latestRun||latestRun.status!=="completed"||latestRun.conclusion!=="success"||latestRun.head_sha!==mainSha)throw new Error("Deploy is blocked until the current main commit has a successful CI/preflight run. A CI run for an older commit cannot be reused.");
+ }
+ const startedAt=Date.now();
+ await github("/repos/"+cfg.repo+"/actions/workflows/"+workflow+"/dispatches",{method:"POST",body:JSON.stringify({ref:"main"})});
+ const run=await findOperationsRun(cfg,workflow,startedAt);
+ return {ok:true,run,action,system:data.system,message:cfg.label+" "+(action==="ci"?"CI":action==="override-deploy"?"OVERRIDE DEPLOY":"production deployment")+" queued."};
+});
+
+async function operationsFullTree(repo:string,treeSha:string,prefix=""){
+ const root=await github("/repos/"+repo+"/git/trees/"+treeSha);
+ const files:any[]=[];
+ for(const item of root?.tree||[]){const path=prefix?prefix+"/"+item.path:item.path;if(item.type==="tree")files.push(...await operationsFullTree(repo,item.sha,path));else files.push({...item,path})}
+ return files;
+}
+async function operationsAllCompareCommits(repo:string,base:string,head:string){
+ const all:any[]=[];
+ for(let page=1;page<=100;page++){const rows=await github("/repos/"+repo+"/compare/"+base+"..."+head+"?per_page=100&page="+page);const commits=rows?.commits||[];all.push(...commits);if(commits.length<100)break}
+ return all;
+}
+export const getOperationsScan=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;system:OperationsSystem}})=>{
+ requireOperationsUser(data.token);
+ const cfg=operationsConfig(data.system);
+ const ref=await github("/repos/"+cfg.repo+"/git/ref/heads/main");
+ const currentSha=String(ref?.object?.sha||"");
+ if(!currentSha)throw new Error("Unable to resolve main branch for "+cfg.repo+".");
+ const [ciSuccess,deployAny]=await Promise.all([
+  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.ci+"/runs?branch=main&status=success&per_page=1"),
+  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&per_page=1"),
+ ]);
+ const baselineSha=ciSuccess?.workflow_runs?.[0]?.head_sha||deployAny?.workflow_runs?.[0]?.head_sha||null;
+ let commits:any[]=[],changedFiles:any[]=[];
+ if(baselineSha&&baselineSha!==currentSha){
+  commits=await operationsAllCompareCommits(cfg.repo,baselineSha,currentSha);
+  const [baseCommit,currentCommit]=await Promise.all([github("/repos/"+cfg.repo+"/commits/"+baselineSha),github("/repos/"+cfg.repo+"/commits/"+currentSha)]);
+  const [baseFiles,currentFiles]=await Promise.all([operationsFullTree(cfg.repo,baseCommit.commit.tree.sha),operationsFullTree(cfg.repo,currentCommit.commit.tree.sha)]);
+  const baseMap=new Map(baseFiles.map((x:any)=>[x.path,x])),currentMap=new Map(currentFiles.map((x:any)=>[x.path,x]));
+  for(const path of new Set([...baseMap.keys(),...currentMap.keys()])){const before:any=baseMap.get(path),after:any=currentMap.get(path);if(!before)changedFiles.push({path,status:"added",sha:after.sha,size:after.size??null});else if(!after)changedFiles.push({path,status:"deleted",sha:null,size:null});else if(before.sha!==after.sha||before.mode!==after.mode)changedFiles.push({path,status:"modified",sha:after.sha,size:after.size??null})}
+  changedFiles.sort((a,b)=>a.path.localeCompare(b.path));
+ }
+ return {key:data.system,label:cfg.label,repo:cfg.repo,branch:"main",currentSha,baselineSha,updateAvailable:currentSha!==baselineSha,commits:commits.map((c:any)=>({sha:c.sha,html_url:c.html_url,message:String(c.commit?.message||"").split("\n")[0],author:c.commit?.author?.name||c.author?.login||"Unknown",date:c.commit?.author?.date||c.commit?.committer?.date||null})).reverse(),commitCount:commits.length,changedFiles,changedFileCount:changedFiles.length,completeFileScan:true,checkedAt:new Date().toISOString()};
+});
