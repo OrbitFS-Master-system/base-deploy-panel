@@ -344,12 +344,17 @@ export const controlRelease=createServerFn({method:"POST"}).handler(async({data}
 
 export const getChannelsState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
  readSession(data.token);
- const [channels,requests,access]=await Promise.all([
-  licenseMaster('/release-channels?include_disabled=true'),
+ const channels=await licenseMaster('/release-channels?include_disabled=true');
+ const [requestsResult,accessResult]=await Promise.allSettled([
   licenseMaster('/release-channels/access?status=all'),
   licenseMaster('/release-channels/access?view=access&status=all')
  ]);
- return {channels:channels?.channels||[],requests:requests?.requests||[],access:access?.access||[]};
+ const warnings:string[]=[];
+ const requests=requestsResult.status==="fulfilled"?(requestsResult.value?.requests||[]):[];
+ const access=accessResult.status==="fulfilled"?(accessResult.value?.access||[]):[];
+ if(requestsResult.status==="rejected")warnings.push("Channel access requests are temporarily unavailable.");
+ if(accessResult.status==="rejected")warnings.push("Channel assignments are temporarily unavailable.");
+ return {channels:channels?.channels||[],requests,access,warnings};
 });
 
 export const saveReleaseChannel=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;channel:string;label:string;description?:string;enabled:boolean;customerVisible:boolean;accessMode:string;accessRequestEnabled:boolean;selfJoinEnabled:boolean;sortOrder?:number}})=>{
