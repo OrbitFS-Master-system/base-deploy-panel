@@ -809,14 +809,28 @@ function ChannelsPage({channels,data,session}:any) {
 }
 
 
-function CustomerPortalPage({releases,channels}:any) {
-  const published=releases.filter((r:any)=>r.status==="published");
-  const rolledBack=releases.filter((r:any)=>["rolled_back","rollback"].includes(String(r.status||"").toLowerCase()));
-  return <section className="space-y-4"><PageHead title="Customer Portal Status" detail="Monitor what customers should see without duplicating Billing Store publication controls."/>
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Published" value={published.length} detail="Currently reported published"/><Metric label="Rolled back" value={rolledBack.length} detail="No longer treated as published"/><Metric label="Channels" value={channels.length} detail="Enabled release channels"/><Metric label="Self-service" value="Policy based" detail="Join / request / private"/></div>
-    <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={Globe2} title="Customer-visible release state" detail="Publication state is monitored here; Billing Store remains the customer-facing publication owner."/></div><ReleaseTable releases={releases.slice(0,12)}/></section>
+function CustomerPortalPage({releases,channels,session}:any) {
+  const [state,setState]=useState<any>({releases,published:releases.filter((r:any)=>r.status==="published"),channels:[],portalUrl:""});
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const loadPortal=async()=>{setLoading(true);setError("");try{setState(await getPortalMonitor({data:{token:session.token}}))}catch(x:any){setError(x.message||"Unable to load portal monitor.")}finally{setLoading(false)}};
+  useEffect(()=>{void loadPortal()},[session.token]);
+  const published=state.published||[];
+  const all=state.releases||[];
+  const rolledBack=all.filter((r:any)=>Boolean(r.manifest?.rollback_from)||String(r.status||"").toLowerCase().includes("rollback"));
+  const unpublished=all.filter((r:any)=>r.status==="disabled"&&!r.archived_at);
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Customer Portal Status" detail="Monitor authoritative release visibility and channel access without turning Dev Panel into the publication system."/><div className="flex gap-2"><button className="button-secondary" onClick={loadPortal} disabled={loading}><RefreshCw size={14} className={loading?"animate-spin":""}/> Refresh</button>{state.portalUrl&&<a className="button-primary" href={state.portalUrl+"/portal/orbitfs/releases"} target="_blank" rel="noreferrer"><Globe2 size={14}/> Open portal</a>}</div></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Published" value={published.length} detail="Customer-visible release state"/><Metric label="Unpublished" value={unpublished.length} detail="Withdrawn from customer visibility"/><Metric label="Rollback history" value={rolledBack.length} detail="Rollback-derived release state"/><Metric label="Channels" value={(state.channels||[]).filter((x:any)=>x.enabled).length} detail="Enabled release channels"/></div>
+    <div className="grid gap-4 xl:grid-cols-[1.35fr_.65fr]">
+      <section className="release-surface overflow-hidden"><div className="flex items-center justify-between border-b p-4"><SectionHead icon={Globe2} title="Customer-visible releases" detail="Only License Master releases currently marked published are treated as visible."/><span className="text-[10px] text-muted-foreground">Billing Store owns final Update publication</span></div><ReleaseTable releases={published}/></section>
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={Server} title="Portal channel actions" detail="Expected customer action from each authoritative channel policy."/></div><div>{(state.channels||[]).filter((x:any)=>x.enabled&&x.customer_visible).map((ch:any)=><div key={ch.channel} className="border-b p-4 last:border-b-0"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold">{ch.label||ch.channel}</p><StatusPill text={ch.access_mode||"assigned"}/></div><p className="mt-2 text-[10px] text-muted-foreground">{ch.access_mode==="open"||ch.self_join_enabled?"Portal action: Join channel":ch.access_request_enabled?"Portal action: Request access":"Portal action: assigned by administrator"}</p></div>)}{!loading&&!(state.channels||[]).some((x:any)=>x.enabled&&x.customer_visible)&&<div className="p-8 text-center text-xs text-muted-foreground">No customer-visible channels are enabled.</div>}</div></section>
+    </div>
+    <section className="release-surface p-4"><SectionHead icon={ShieldCheck} title="Publication boundary" detail="This page reads downstream state only."/><p className="mt-3 text-xs leading-6 text-muted-foreground">Dev Panel prepares and controls technical release state through License Master. It does not publish Update releases from this page. If Billing Store unpublishes an Update or License Master rolls a Base release back, the next refresh stops reporting that release as published.</p></section>
   </section>;
 }
+
 
 function AuditPage({releases,run}:any) {
   return <section className="space-y-4"><PageHead title="Audit & History" detail="Operational history from the release records currently visible to the Dev Panel."/>
