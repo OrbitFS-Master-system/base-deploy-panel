@@ -1,8 +1,9 @@
-name: Design branch check
+name: Dev Panel build check
 
 on:
   push:
     branches:
+      - main
       - design/orbitfs-control-redesign
   workflow_dispatch:
 
@@ -24,7 +25,6 @@ jobs:
       - name: Install
         run: npm install --ignore-scripts
       - name: Typecheck
-        continue-on-error: true
         run: npx tsc --noEmit
       - name: Build
         run: npm run build
