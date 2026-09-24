@@ -28,7 +28,7 @@
 ## Stage 3 — V2_Billing_Store Admin Portal
 - [x] Receive approved License Manager releases
 - [x] Admin review/customisation
-- [x] Channel/access configuration
+- [x] Customer channel/access workflows in Billing Store; policy authority remains in License Manager
 - [x] Publish releases
 
 ## Stage 4 — Customer Portal
