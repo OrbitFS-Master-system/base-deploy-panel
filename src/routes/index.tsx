@@ -398,9 +398,9 @@ function Dashboard({ stats, releases, connected, run, channels, onBase, onEngine
     </div>
     <div className="orbit-metric-grid">
       <Metric label="Latest release" value={latest?"v"+latest.version:"—"} detail={latest?(latest.release_type+" · "+latest.channel):"No release records"} />
-      <Metric label="Release health" value={health+"%"} detail={connected?"License Master connected":"Master unavailable"} />
       <Metric label="Pending review" value={pending} detail="Technical candidates" />
-      <Metric label="Active pipeline" value={run&&!run.conclusion?"1":"0"} detail={run?.id?("GitHub run #"+run.id):"No workflow running"} />
+      <Metric label="Published" value={stats.published||0} detail="Customer-visible releases" />
+      <Metric label="Validation failed" value={stats.validationFailed||0} detail={stats.validationFailed?"Needs attention":"No failed validations"} />
     </div>
     <div className="orbit-dashboard-reference-grid">
       <section className="orbit-panel orbit-release-list-panel">
@@ -415,9 +415,8 @@ function Dashboard({ stats, releases, connected, run, channels, onBase, onEngine
         </div>
       </section>
       <aside className="space-y-4">
-        <section className="orbit-panel p-4"><SectionHead icon={ShieldCheck} title="Release health" detail="Authority and worker readiness"/><div className="mt-4 space-y-1"><StatusRow label="License Master" value={connected?"Connected":"Unavailable"} good={connected}/><StatusRow label="Validation failures" value={String(stats.validationFailed||0)} good={!stats.validationFailed}/><StatusRow label="Pending candidates" value={String(stats.candidates||0)}/><StatusRow label="Published releases" value={String(stats.published||0)}/></div></section>
+        <section className="orbit-panel p-4"><SectionHead icon={ShieldCheck} title="System status" detail="Live authority and worker state"/><div className="mt-4 space-y-1"><StatusRow label="License Master" value={connected?"Connected":"Unavailable"} good={connected}/><StatusRow label="Release health" value={health+"%"} good={health===100}/><StatusRow label="Workflow" value={run?(run.conclusion||run.status||"queued"):"Idle"} good={!run||run.conclusion==="success"}/>{run?.id&&<StatusRow label="Run" value={"#"+run.id}/>}</div><button className="button-secondary mt-3 w-full" onClick={onActivity}>Open monitoring <ArrowRight size={13}/></button></section>
         <section className="orbit-panel p-4"><SectionHead icon={Server} title="Release channels" detail="Enabled authoritative channels"/><div className="orbit-chip-list mt-4">{channels.length?channels.map((x:string)=><span key={x}>{x}</span>):<span>None reported</span>}</div></section>
-        <section className="orbit-panel p-4"><SectionHead icon={Activity} title="Current workflow" detail="Latest monitored release-builder execution"/><div className="mt-4"><StatusRow label="Run" value={run?.id?("#"+run.id):"Idle"}/><StatusRow label="State" value={run?(run.conclusion||run.status||"queued"):"No active workflow"}/></div><button className="button-secondary mt-3 w-full" onClick={onActivity}>Open monitoring <ArrowRight size={13}/></button></section>
       </aside>
     </div>
     <div className="orbit-dashboard-bottom-grid">
@@ -837,7 +836,15 @@ function SectionHead({ icon: Icon, title, detail }: any) {
   return <div className="orbit-section-head"><span className="orbit-section-icon"><Icon size={15}/></span><div><h2>{title}</h2><p>{detail}</p></div></div>;
 }
 function StatusRow({ label, value, good }: any) { return <div className="orbit-status-row"><span>{label}</span><strong className={good?"is-good":""}>{good&&<i/>}{value}</strong></div>; }
-function StatusPill({ text }: any) { return <span className={`orbit-status-pill orbit-status-${String(text||"").toLowerCase().replace(/[^a-z0-9]+/g,"-")}`}>{text}</span>; }
+function statusTone(text:any){
+  const s=String(text||"").toLowerCase();
+  if(["failed","failure","rejected","error","offline","unavailable","disabled","unpublished"].some(x=>s.includes(x)))return "danger";
+  if(["pending","queued","running","draft","waiting","review","request","assigned"].some(x=>s.includes(x)))return "warning";
+  if(["published","approved","passed","success","connected","enabled","ready","active","received","open"].some(x=>s.includes(x)))return "success";
+  if(["archived","idle","closed","not run","not validated"].some(x=>s.includes(x)))return "neutral";
+  return "info";
+}
+function StatusPill({ text }: any) { return <span className={`orbit-status-pill orbit-status-tone-${statusTone(text)}`}>{text}</span>; }
 function Field({ label, children }: any) { return <label className="block text-xs font-medium">{label}{children}</label>; }
 function Alert({ tone, children, onClose }: any) { return <div className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs ${tone==="error"?"border-destructive/40 bg-destructive/10":"border-emerald-400/30 bg-emerald-400/10"}`}><span>{children}</span>{onClose&&<button className="opacity-60 hover:opacity-100" onClick={onClose}><XCircle size={14}/></button>}</div>; }
 
