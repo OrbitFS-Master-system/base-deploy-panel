@@ -41,6 +41,22 @@ function verifyPassword(password:string,hash:string,salt:string){
  return derived.length===stored.length&&crypto.timingSafeEqual(derived,stored);
 }
 
+function requireOwner(token:string){
+ const user=readSession(token);
+ if(String(user.role).toLowerCase()!=="owner")throw new Error("Owner access required");
+ return user;
+}
+function hashPassword(password:string){
+ if(password.length<10)throw new Error("Temporary password must be at least 10 characters");
+ const salt=crypto.randomBytes(16).toString("hex");
+ const hash=crypto.scryptSync(password,salt,64).toString("hex");
+ return {hash,salt};
+}
+const GROUP_PERMISSIONS=[
+ "release.read","release.create","release.monitor","release.lifecycle",
+ "channels.read","portal.read","repositories.read","monitoring.read","audit.read"
+] as const;
+
 export const login=createServerFn({method:"POST"}).handler(async({data}:{data:{email:string;password:string}})=>{
  const email=String(data.email||"").trim().toLowerCase(),password=String(data.password||"");
  if(!email||!password)throw new Error("Email and password are required");
@@ -51,6 +67,92 @@ export const login=createServerFn({method:"POST"}).handler(async({data}:{data:{e
  await sb.from("users").update({last_login_at:new Date().toISOString()}).eq("id",user.id);
  const safe={id:user.id,email:user.email,display_name:user.display_name,role:user.role};
  return {ok:true,token:signSession(safe),user:safe};
+});
+
+
+export const getAccessState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ const actor=readSession(data.token);
+ const sb=authClient();
+ if(String(actor.role).toLowerCase()!=="owner") return {users:[],groups:[],ownerOnly:true,permissions:GROUP_PERMISSIONS};
+ const [{data:users,error:usersError},{data:groups,error:groupsError},{data:memberships,error:membershipError}]=await Promise.all([
+  sb.from("users").select("id,email,display_name,role,status,last_login_at,created_at").order("created_at",{ascending:true}),
+  sb.from("access_groups").select("id,name,description,permissions,created_at").order("name",{ascending:true}),
+  sb.from("user_access_groups").select("user_id,group_id"),
+ ]);
+ if(usersError)throw new Error("Unable to load Dev Panel users");
+ if(groupsError)throw new Error("Unable to load access groups. Apply the Dev Panel access migration first.");
+ if(membershipError)throw new Error("Unable to load group memberships");
+ return {users:users||[],groups:groups||[],memberships:memberships||[],ownerOnly:false,permissions:GROUP_PERMISSIONS};
+});
+
+export const createPanelUser=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;email:string;displayName:string;role:"owner"|"admin";password:string;groupIds?:string[]}})=>{
+ const actor=requireOwner(data.token);
+ const email=String(data.email||"").trim().toLowerCase();
+ const displayName=String(data.displayName||"").trim();
+ const role=String(data.role||"admin").toLowerCase();
+ if(!email||!email.includes("@"))throw new Error("Enter a valid email address");
+ if(!displayName)throw new Error("Display name is required");
+ if(!["owner","admin"].includes(role))throw new Error("Role must be Owner or Admin");
+ const {hash,salt}=hashPassword(String(data.password||""));
+ const sb=authClient();
+ const {data:user,error}=await sb.from("users").insert({email,display_name:displayName,role,status:"active",password_hash:hash,password_salt:salt}).select("id,email,display_name,role,status,last_login_at,created_at").single();
+ if(error)throw new Error(error.code==="23505"?"A user with that email already exists":"Unable to create user");
+ const groupIds=[...new Set((data.groupIds||[]).map(String).filter(Boolean))];
+ if(groupIds.length){
+  const {error:membershipError}=await sb.from("user_access_groups").insert(groupIds.map(group_id=>({user_id:user.id,group_id})));
+  if(membershipError)throw new Error("User created, but group assignment failed");
+ }
+ await sb.from("panel_access_audit").insert({actor_id:actor.id,action:"user.created",target_type:"user",target_id:user.id,detail:{email,role}});
+ return {user};
+});
+
+export const updatePanelUser=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;userId:string;role?:"owner"|"admin";status?:"active"|"disabled";displayName?:string;password?:string;groupIds?:string[]}})=>{
+ const actor=requireOwner(data.token);
+ const sb=authClient();
+ const patch:any={updated_at:new Date().toISOString()};
+ if(data.role){if(!["owner","admin"].includes(data.role))throw new Error("Invalid role");patch.role=data.role}
+ if(data.status){if(!["active","disabled"].includes(data.status))throw new Error("Invalid status");patch.status=data.status}
+ if(typeof data.displayName==="string"){const v=data.displayName.trim();if(!v)throw new Error("Display name is required");patch.display_name=v}
+ if(data.password){const hp=hashPassword(data.password);patch.password_hash=hp.hash;patch.password_salt=hp.salt}
+ if(String(data.userId)===actor.id&&patch.status==="disabled")throw new Error("You cannot disable your own Owner account");
+ const {data:user,error}=await sb.from("users").update(patch).eq("id",data.userId).select("id,email,display_name,role,status,last_login_at,created_at").single();
+ if(error)throw new Error("Unable to update user");
+ if(Array.isArray(data.groupIds)){
+  const {error:deleteError}=await sb.from("user_access_groups").delete().eq("user_id",data.userId);
+  if(deleteError)throw new Error("User updated, but group memberships could not be reset");
+  const ids=[...new Set(data.groupIds.map(String).filter(Boolean))];
+  if(ids.length){
+   const {error:insertError}=await sb.from("user_access_groups").insert(ids.map(group_id=>({user_id:data.userId,group_id})));
+   if(insertError)throw new Error("User updated, but group membership assignment failed");
+  }
+ }
+ await sb.from("panel_access_audit").insert({actor_id:actor.id,action:"user.updated",target_type:"user",target_id:data.userId,detail:{role:data.role,status:data.status}});
+ return {user};
+});
+
+export const createAccessGroup=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;name:string;description?:string;permissions?:string[]}})=>{
+ const actor=requireOwner(data.token);
+ const name=String(data.name||"").trim();
+ if(!name)throw new Error("Group name is required");
+ const permissions=[...new Set((data.permissions||[]).filter((x:string)=>GROUP_PERMISSIONS.includes(x as any)))];
+ const sb=authClient();
+ const {data:group,error}=await sb.from("access_groups").insert({name,description:String(data.description||"").trim(),permissions}).select("*").single();
+ if(error)throw new Error(error.code==="23505"?"A group with that name already exists":"Unable to create group");
+ await sb.from("panel_access_audit").insert({actor_id:actor.id,action:"group.created",target_type:"group",target_id:group.id,detail:{name,permissions}});
+ return {group};
+});
+
+export const updateAccessGroup=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;groupId:string;name?:string;description?:string;permissions?:string[]}})=>{
+ const actor=requireOwner(data.token);
+ const patch:any={updated_at:new Date().toISOString()};
+ if(typeof data.name==="string"){const name=data.name.trim();if(!name)throw new Error("Group name is required");patch.name=name}
+ if(typeof data.description==="string")patch.description=data.description.trim();
+ if(Array.isArray(data.permissions))patch.permissions=[...new Set(data.permissions.filter((x:string)=>GROUP_PERMISSIONS.includes(x as any)))];
+ const sb=authClient();
+ const {data:group,error}=await sb.from("access_groups").update(patch).eq("id",data.groupId).select("*").single();
+ if(error)throw new Error("Unable to update group");
+ await sb.from("panel_access_audit").insert({actor_id:actor.id,action:"group.updated",target_type:"group",target_id:data.groupId,detail:patch});
+ return {group};
 });
 
 export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";channel?:string}})=>{
