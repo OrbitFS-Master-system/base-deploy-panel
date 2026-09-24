@@ -312,21 +312,41 @@ function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
   </header>;
 }
 
+const NAV_STANDALONE = [
+  ["overview","Overview","Command center",Gauge],
+] as const;
+
+const NAV_GROUPS = [
+  {label:"Operate",items:[
+    ["base","Base Deployment","First stage · Build & handoff",Rocket],
+    ["engine","Update Release System","First stage · Detect, package & validate",Layers3],
+    ["operations","Operations","Deploy Billing Store & License Manager",Terminal],
+  ]},
+  {label:"Monitor",items:[
+    ["releases","Release Registry","Lifecycle state",PackageCheck],
+    ["activity","Release Runs","Workflow execution",Activity],
+    ["monitoring","Monitoring","System health",BarChart3],
+  ]},
+  {label:"Control",items:[
+    ["channels","Channels","Read only",Server],
+    ["portal","Customer Portal","Publication state",Globe2],
+    ["repositories","Repositories","Sources & workers",Boxes],
+  ]},
+  {label:"Govern",items:[
+    ["audit","Audit History","Authority events",History],
+    ["access","Users & Access","Panel permissions",Users],
+    ["settings","Configuration","Runtime & panel settings",Settings2],
+  ]},
+] as const;
+
 function MobileNav({ tab, setTab, activeRun }: any) {
   const items = [
-    ["overview","Overview",Gauge],
-    ["base","Base",Rocket],
-    ["engine","Updates",Layers3],
-    ["releases","Releases",PackageCheck],
-    ["activity","Runs",Activity],
-    ["operations","Operations",Terminal],
-    ["channels","Channels",Server],
-    ["portal","Portal",Globe2],
-    ["settings","Config",Settings2],
-  ] as const;
+    ...NAV_STANDALONE,
+    ...NAV_GROUPS.flatMap(group=>group.items),
+  ];
   return <div className="orbit-mobile-nav md:hidden">
     <div className="orbit-mobile-nav-track">
-      {items.map(([id,label,Icon])=><button key={id} onClick={()=>setTab(id as Tab)} className={`orbit-mobile-nav-item ${tab===id?"is-active":""}`}>
+      {items.map(([id,label,,Icon])=><button key={id} onClick={()=>setTab(id as Tab)} className={`orbit-mobile-nav-item ${tab===id?"is-active":""}`}>
         <Icon size={15}/><span>{label}</span>{id==="activity"&&activeRun&&<i/>}
       </button>)}
     </div>
@@ -334,32 +354,20 @@ function MobileNav({ tab, setTab, activeRun }: any) {
 }
 
 function Sidebar({ tab, setTab, activeRun }: any) {
-  const groups = [
-    {label:"Operate",items:[
-      ["overview","Overview","Command center",Gauge],
-      ["base","Base deployments","Build & handoff",Rocket],
-      ["engine","Updates","Manifest releases",Layers3],
-      ["releases","Release registry","Lifecycle state",PackageCheck],
-      ["activity","Release runs","Workflow execution",Activity],
-      ["operations","Operations","Production CI & deploy",Terminal],
-    ]},
-    {label:"Control",items:[
-      ["channels","Channels","Access policy",Server],
-      ["portal","Customer portal","Publication state",Globe2],
-      ["repositories","Repositories","Sources & workers",Boxes],
-      ["monitoring","Monitoring","System health",BarChart3],
-    ]},
-    {label:"Govern",items:[
-      ["audit","Audit history","Authority events",History],
-      ["access","Users & access","Panel permissions",Users],
-      ["settings","Configuration","Runtime settings",Settings2],
-    ]},
-  ] as const;
   return <aside className="orbit-sidebar hidden shrink-0 md:block">
     <div className="sticky top-[72px] flex h-[calc(100vh-72px)] flex-col overflow-y-auto p-3">
       <div className="orbit-sidebar-brand"><div className="orbit-brandmark"><span></span></div><div><b>OrbitFS</b><small>Release Control</small></div></div>
       <nav className="space-y-5">
-        {groups.map(group=><div key={group.label}>
+        <div>
+          <div className="space-y-1">
+            {NAV_STANDALONE.map(([id,label,detail,Icon])=><button key={id} onClick={()=>setTab(id as Tab)}
+              className={`orbit-nav-item ${tab===id?"orbit-nav-active":""}`}>
+              <span className="orbit-nav-icon"><Icon size={16}/></span>
+              <span className="min-w-0 flex-1"><b>{label}</b><small>{detail}</small></span>
+            </button>)}
+          </div>
+        </div>
+        {NAV_GROUPS.map(group=><div key={group.label}>
           <p className="orbit-nav-group">{group.label}</p>
           <div className="mt-2 space-y-1">
             {group.items.map(([id,label,detail,Icon])=><button key={id} onClick={()=>setTab(id as Tab)}
@@ -392,7 +400,7 @@ function Dashboard({ stats, releases, connected, run, channels, onBase, onEngine
       <div className="orbit-reference-actions">
         <button className="button-secondary" onClick={onReleases}><PackageCheck size={14}/> Release history</button>
         <button className="button-secondary" onClick={onBase}><Rocket size={14}/> Base deployment</button>
-        <button className="button-primary" onClick={onEngine}><Layers3 size={14}/> New update</button>
+        <button className="button-primary" onClick={onEngine}><Layers3 size={14}/> Update release</button>
       </div>
     </div>
     <div className="orbit-metric-grid">
