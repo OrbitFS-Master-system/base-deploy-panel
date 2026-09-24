@@ -244,9 +244,13 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  if(!channelEnabled)throw new Error("Release channel is not configured or is disabled in License Master: "+channel);
  const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF,workflow=data.type==="base"?BASE_WORKFLOW:ENGINE_WORKFLOW;
  if (data.type === "engine") {
+  const minimumBaseVersion=String(data.minimumBaseVersion||"").trim();
+  const protocol=Number(data.protocol||"");
+  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(minimumBaseVersion))throw new Error("Minimum Base version must be valid SemVer.");
+  if(!Number.isInteger(protocol)||protocol<1||protocol>100)throw new Error("Minimum deployer protocol must be an integer from 1 to 100.");
   const baseResult = await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`);
-  const publishedBase = (baseResult?.releases || []).some((r:any) => r.status === "published" && r.review_status === "approved");
-  if (!publishedBase) throw new Error("A published, technically approved OrbitFS Base release is required before creating Engine updates.");
+  const publishedBase = (baseResult?.releases || []).some((r:any) => r.status === "published" && r.review_status === "approved" && !r.archived_at && String(r.version)===minimumBaseVersion && String(r.channel||"stable")===channel);
+  if (!publishedBase) throw new Error(`Published, technically approved OrbitFS Base ${minimumBaseVersion} is required in channel ${channel} before creating this Update.`);
  }
  const previousResult = data.type === "base"
   ? await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`)
