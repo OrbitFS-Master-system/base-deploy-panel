@@ -4,16 +4,18 @@ import {
   Activity, AlertCircle, ArrowRight, CheckCircle2, ChevronRight, CircleDot,
   Clock3, FileCode2, GitBranch, Github, Layers3, Loader2, PackageCheck,
   RefreshCw, Rocket, ScrollText, Server, Settings2, ShieldCheck, Terminal,
-  UploadCloud, XCircle, Zap, Search, Boxes, Gauge, GitCommit, BarChart3, Bell, Menu, ChevronDown
+  UploadCloud, XCircle, Zap, Search, Boxes, Gauge, GitCommit, BarChart3, Bell, Menu, ChevronDown,
+  Users, UserPlus, KeyRound, Globe2, History, UserCog
 } from "lucide-react";
 import {
   getPanelState, inspectSource, startRelease, getReleaseRun,
-  getReleaseHandoff, login
+  getReleaseHandoff, login, getAccessState, createPanelUser,
+  updatePanelUser, createAccessGroup, updateAccessGroup
 } from "@/lib/panel.server";
 
 export const Route = createFileRoute("/")({ component: Index });
 
-type Tab = "overview" | "releases" | "base" | "engine" | "activity" | "repositories" | "environments" | "monitoring" | "settings";
+type Tab = "overview" | "releases" | "base" | "engine" | "activity" | "channels" | "portal" | "repositories" | "monitoring" | "audit" | "access" | "settings";
 type ReleaseType = "base" | "engine";
 
 const EMPTY = { releases: [], channels: [] };
@@ -237,8 +239,11 @@ function Index() {
               run={runRepo === "lucaskerim123/V1-vercel-engine" ? run : null} runRepo={runRepo} handoff={handoff} connected={masterConnected} />}
             {tab === "activity" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} />}
             {tab === "repositories" && <RepositoriesPage data={data} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
-            {tab === "environments" && <EnvironmentsPage channels={availableChannels} data={data} />}
+            {tab === "channels" && <ChannelsPage channels={availableChannels} data={data} />}
+            {tab === "portal" && <CustomerPortalPage releases={allReleases} channels={availableChannels} />}
             {tab === "monitoring" && <SystemMonitoringPage releases={allReleases} connected={masterConnected} run={run} />}
+            {tab === "audit" && <AuditPage releases={allReleases} run={run} />}
+            {tab === "access" && <AccessPage session={session} />}
             {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
           </div>
         </main>
@@ -299,15 +304,18 @@ function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
 
 function Sidebar({ tab, setTab, activeRun }: any) {
   const items = [
-    ["overview", "Overview", "Release workspace", Gauge],
-    ["base", "Base Deployment", "Complete Base release flow", Rocket],
-    ["engine", "Updates", "Manifest-driven Engine updates", Layers3],
-    ["releases", "Releases", "All release records", PackageCheck],
+    ["overview", "Dashboard", "Release control overview", Gauge],
+    ["base", "Base Deployments", "Base release workspace", Rocket],
+    ["engine", "Updates", "Manifest-driven updates", Layers3],
+    ["releases", "Releases", "Combined release registry", PackageCheck],
     ["activity", "Release Monitoring", "Live workflow health", Activity],
+    ["channels", "Channels", "Release access channels", Server],
+    ["portal", "Customer Portal", "Publication & access state", Globe2],
     ["repositories", "Repositories", "Source & workers", Boxes],
-    ["environments", "Environments", "Channels & stages", Server],
     ["monitoring", "Monitoring", "System telemetry", BarChart3],
-    ["settings", "Settings", "Runtime configuration", Settings2],
+    ["audit", "Audit & History", "Release and access events", History],
+    ["access", "Users & Access", "Owner-managed access", Users],
+    ["settings", "Configuration", "Runtime configuration", Settings2],
   ] as const;
   return <aside className="orbit-sidebar hidden w-[230px] shrink-0 lg:block">
     <div className="sticky top-0 flex h-screen flex-col px-3 py-5">
@@ -774,14 +782,93 @@ function RepositoryCard({title,repo,refName,workflow,icon:Icon,onCreate}:any) {
   return <section className="release-surface overflow-hidden"><div className="flex items-start justify-between border-b p-4"><SectionHead icon={Icon} title={title} detail={repo||"Repository unavailable"}/><span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[9px] text-emerald-300">CONNECTED</span></div><div className="space-y-2 p-4"><StatusRow label="Repository" value={repo||"—"}/><StatusRow label="Release ref" value={refName||"—"}/><StatusRow label="Workflow" value={workflow||"—"}/></div><div className="border-t p-4"><button className="button-primary" onClick={onCreate}><Rocket size={14}/> Prepare release</button></div></section>;
 }
 
-function EnvironmentsPage({channels,data}:any) {
-  return <section className="space-y-4"><PageHead title="Environments" detail="Release channels and handoff stages reported by License Master."/>
-    <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
-      <section className="release-surface p-4"><SectionHead icon={Server} title="Release channels" detail="Enabled channels returned by the authoritative API."/><div className="mt-4 flex flex-wrap gap-2">{channels.length?channels.map((x:string)=><span key={x} className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">{x}</span>):<span className="text-xs text-muted-foreground">No channels returned.</span>}</div></section>
-      <section className="release-surface p-4"><SectionHead icon={ShieldCheck} title="Production handoff" detail="Authority and execution boundaries remain unchanged."/><div className="mt-4 grid gap-2 sm:grid-cols-4"><PipelineStep icon={FileCode2} title="Dev Panel" text="Prepare"/><PipelineStep icon={ShieldCheck} title="License Master" text="Validate"/><PipelineStep icon={PackageCheck} title="Billing Store" text="Publish"/><PipelineStep icon={Rocket} title="Customer deployer" text="Execute"/></div></section>
+function ChannelsPage({channels,data}:any) {
+  return <section className="space-y-4"><PageHead title="Channels" detail="Release channels reported by License Master. Access policy remains authoritative outside the Dev Panel."/>
+    <div className="grid gap-4 lg:grid-cols-[1fr_1.25fr]">
+      <section className="release-surface p-4"><SectionHead icon={Server} title="Configured channels" detail="Channels currently enabled for release preparation."/>
+        <div className="mt-4 space-y-2">{channels.length?channels.map((x:string)=><div key={x} className="flex items-center justify-between rounded-lg border bg-background/40 px-3 py-2"><div><p className="text-xs font-semibold">{x}</p><p className="text-[10px] text-muted-foreground">Available to release workflows</p></div><StatusPill text="enabled"/></div>):<p className="text-xs text-muted-foreground">No enabled channels returned.</p>}</div>
+      </section>
+      <section className="release-surface p-4"><SectionHead icon={ShieldCheck} title="Channel access behaviour" detail="Customer Portal actions depend on each channel's access setting."/>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3"><PipelineStep icon={CheckCircle2} title="Open" text="Customer can join the channel directly."/><PipelineStep icon={ScrollText} title="Request" text="Customer submits a channel access request."/><PipelineStep icon={ShieldCheck} title="Closed / private" text="No self-service join action is shown."/></div>
+        <p className="mt-4 text-[10px] leading-5 text-muted-foreground">The Dev Panel reads and displays access behaviour; it does not duplicate customer entitlement authority.</p>
+      </section>
     </div>
   </section>;
 }
+
+function CustomerPortalPage({releases,channels}:any) {
+  const published=releases.filter((r:any)=>r.status==="published");
+  const rolledBack=releases.filter((r:any)=>["rolled_back","rollback"].includes(String(r.status||"").toLowerCase()));
+  return <section className="space-y-4"><PageHead title="Customer Portal Status" detail="Monitor what customers should see without duplicating Billing Store publication controls."/>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Published" value={published.length} detail="Currently reported published"/><Metric label="Rolled back" value={rolledBack.length} detail="No longer treated as published"/><Metric label="Channels" value={channels.length} detail="Enabled release channels"/><Metric label="Self-service" value="Policy based" detail="Join / request / private"/></div>
+    <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={Globe2} title="Customer-visible release state" detail="Publication state is monitored here; Billing Store remains the customer-facing publication owner."/></div><ReleaseTable releases={releases.slice(0,12)}/></section>
+  </section>;
+}
+
+function AuditPage({releases,run}:any) {
+  return <section className="space-y-4"><PageHead title="Audit & History" detail="Operational history from the release records currently visible to the Dev Panel."/>
+    <div className="grid gap-4 xl:grid-cols-[1fr_330px]">
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={History} title="Release history" detail="Recent release state, validation and approval history."/></div><ReleaseTable releases={releases.slice(0,20)}/></section>
+      <section className="release-surface p-4"><SectionHead icon={Activity} title="Current workflow" detail="Latest monitored GitHub workflow context."/><div className="mt-4 space-y-2"><StatusRow label="Run" value={run?.id?`#${run.id}`:"None"}/><StatusRow label="Status" value={run?(run.conclusion||run.status||"queued"):"Idle"}/><StatusRow label="Jobs" value={String(run?.jobs?.length||0)}/></div><p className="mt-4 text-[10px] leading-5 text-muted-foreground">License Master remains the authoritative source for technical release audit history. This view will surface that API data as it becomes available.</p></section>
+    </div>
+  </section>;
+}
+
+function AccessPage({session}:any) {
+  const [state,setState]=useState<any>({users:[],groups:[],memberships:[],permissions:[],ownerOnly:false});
+  const [loading,setLoading]=useState(true);
+  const [message,setMessage]=useState("");
+  const [accessError,setAccessError]=useState("");
+  const [showUserForm,setShowUserForm]=useState(false);
+  const [showGroupForm,setShowGroupForm]=useState(false);
+  const [userForm,setUserForm]=useState({email:"",displayName:"",role:"admin",password:"",groupIds:[] as string[]});
+  const [groupForm,setGroupForm]=useState({name:"",description:"",permissions:[] as string[]});
+  const owner=String(session?.role||"").toLowerCase()==="owner";
+
+  const loadAccess=async()=>{
+    setLoading(true);setAccessError("");
+    try{const r=await getAccessState({data:{token:session.token}});setState(r)}
+    catch(x:any){setAccessError(x.message||"Unable to load users and access groups.")}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{loadAccess()},[session?.token]);
+
+  const createUser=async(e:any)=>{
+    e.preventDefault();setAccessError("");setMessage("");
+    try{await createPanelUser({data:{token:session.token,email:userForm.email,displayName:userForm.displayName,role:userForm.role as "owner"|"admin",password:userForm.password,groupIds:userForm.groupIds}});setUserForm({email:"",displayName:"",role:"admin",password:"",groupIds:[]});setShowUserForm(false);setMessage("User created.");await loadAccess()}
+    catch(x:any){setAccessError(x.message||"Unable to create user.")}
+  };
+  const createGroup=async(e:any)=>{
+    e.preventDefault();setAccessError("");setMessage("");
+    try{await createAccessGroup({data:{token:session.token,name:groupForm.name,description:groupForm.description,permissions:groupForm.permissions}});setGroupForm({name:"",description:"",permissions:[]});setShowGroupForm(false);setMessage("Group created.");await loadAccess()}
+    catch(x:any){setAccessError(x.message||"Unable to create group.")}
+  };
+  const toggleUser=async(user:any)=>{
+    try{await updatePanelUser({data:{token:session.token,userId:user.id,status:user.status==="active"?"disabled":"active"}});await loadAccess()}
+    catch(x:any){setAccessError(x.message||"Unable to update user.")}
+  };
+  const setRole=async(user:any,role:"owner"|"admin")=>{
+    try{await updatePanelUser({data:{token:session.token,userId:user.id,role}});await loadAccess()}
+    catch(x:any){setAccessError(x.message||"Unable to update role.")}
+  };
+
+  if(!owner) return <section className="space-y-4"><PageHead title="Users & Access" detail="Owner-only access management."/><section className="release-surface p-5"><SectionHead icon={KeyRound} title="Owner access required" detail="Admins can operate releases but cannot change users, groups or permissions."/></section></section>;
+
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Users & Access" detail="Private Dev Panel access. Only Owner and Admin roles are supported."/><div className="flex gap-2"><button className="button-secondary" onClick={()=>setShowGroupForm(!showGroupForm)}><UserCog size={14}/> New group</button><button className="button-primary" onClick={()=>setShowUserForm(!showUserForm)}><UserPlus size={14}/> Add user</button></div></div>
+    {accessError&&<Alert tone="error" onClose={()=>setAccessError("")}>{accessError}</Alert>}
+    {message&&<Alert tone="success" onClose={()=>setMessage("")}>{message}</Alert>}
+    {showUserForm&&<form onSubmit={createUser} className="release-surface p-4"><SectionHead icon={UserPlus} title="Add user" detail="Create a private Dev Panel account with a temporary password."/><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Display name"><input className="control" value={userForm.displayName} onChange={e=>setUserForm({...userForm,displayName:e.target.value})} required/></Field><Field label="Email"><input className="control" type="email" value={userForm.email} onChange={e=>setUserForm({...userForm,email:e.target.value})} required/></Field><Field label="Role"><select className="control" value={userForm.role} onChange={e=>setUserForm({...userForm,role:e.target.value})}><option value="admin">Admin</option><option value="owner">Owner</option></select></Field><Field label="Temporary password"><input className="control" type="password" minLength={10} value={userForm.password} onChange={e=>setUserForm({...userForm,password:e.target.value})} required/></Field></div><div className="mt-4 flex justify-end"><button className="button-primary">Create user</button></div></form>}
+    {showGroupForm&&<form onSubmit={createGroup} className="release-surface p-4"><SectionHead icon={Users} title="New access group" detail="Groups bundle operational permissions. Owner still controls membership and roles."/><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Group name"><input className="control" value={groupForm.name} onChange={e=>setGroupForm({...groupForm,name:e.target.value})} required/></Field><Field label="Description"><input className="control" value={groupForm.description} onChange={e=>setGroupForm({...groupForm,description:e.target.value})}/></Field></div><div className="mt-4 grid gap-2 sm:grid-cols-3">{state.permissions.map((p:string)=><label key={p} className="flex items-center gap-2 rounded-lg border bg-background/40 p-2 text-[11px]"><input type="checkbox" checked={groupForm.permissions.includes(p)} onChange={()=>setGroupForm({...groupForm,permissions:groupForm.permissions.includes(p)?groupForm.permissions.filter(x=>x!==p):[...groupForm.permissions,p]})}/><code>{p}</code></label>)}</div><div className="mt-4 flex justify-end"><button className="button-primary">Create group</button></div></form>}
+    <div className="grid gap-4 xl:grid-cols-[1.4fr_.8fr]">
+      <section className="release-surface overflow-hidden"><div className="flex items-center justify-between border-b p-4"><SectionHead icon={Users} title="Users" detail={loading?"Loading…":`${state.users.length} private accounts`}/><span className="text-[10px] text-muted-foreground">Owner / Admin only</span></div>
+        <div>{state.users.map((u:any)=><div key={u.id} className="grid gap-3 border-b p-4 last:border-b-0 md:grid-cols-[1fr_120px_120px_auto] md:items-center"><div><p className="text-sm font-medium">{u.display_name}</p><p className="mt-1 text-[10px] text-muted-foreground">{u.email} · last login {u.last_login_at?new Date(u.last_login_at).toLocaleString():"never"}</p></div><select className="control mt-0" value={u.role} onChange={e=>setRole(u,e.target.value as any)}><option value="admin">Admin</option><option value="owner">Owner</option></select><StatusPill text={u.status}/><button className="button-secondary" onClick={()=>toggleUser(u)}>{u.status==="active"?"Disable":"Enable"}</button></div>)}{!loading&&!state.users.length&&<div className="p-8 text-center text-xs text-muted-foreground">No users returned.</div>}</div>
+      </section>
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={UserCog} title="Groups" detail="Optional permission bundles for this private panel."/></div><div>{state.groups.map((g:any)=><div key={g.id} className="border-b p-4 last:border-b-0"><div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{g.name}</p><StatusPill text={`${Array.isArray(g.permissions)?g.permissions.length:0} permissions`}/></div><p className="mt-1 text-[10px] text-muted-foreground">{g.description||"No description"}</p><div className="mt-3 flex flex-wrap gap-1">{(g.permissions||[]).map((p:string)=><code key={p} className="rounded bg-muted px-1.5 py-1 text-[9px]">{p}</code>)}</div></div>)}{!loading&&!state.groups.length&&<div className="p-8 text-center text-xs text-muted-foreground">No groups yet.</div>}</div></section>
+    </div>
+  </section>;
+}
+
 
 function SystemMonitoringPage({releases,connected,run}:any) {
   const failed=releases.filter((r:any)=>r.manifest?.validation?.status==="failed").length;
