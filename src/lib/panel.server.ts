@@ -41,6 +41,22 @@ function verifyPassword(password:string,hash:string,salt:string){
  return derived.length===stored.length&&crypto.timingSafeEqual(derived,stored);
 }
 
+function requireOwner(token:string){
+ const user=readSession(token);
+ if(String(user.role).toLowerCase()!=="owner")throw new Error("Owner access required");
+ return user;
+}
+function hashPassword(password:string){
+ if(password.length<10)throw new Error("Temporary password must be at least 10 characters");
+ const salt=crypto.randomBytes(16).toString("hex");
+ const hash=crypto.scryptSync(password,salt,64).toString("hex");
+ return {hash,salt};
+}
+const GROUP_PERMISSIONS=[
+ "release.read","release.create","release.monitor","release.lifecycle",
+ "channels.read","portal.read","repositories.read","monitoring.read","audit.read"
+] as const;
+
 export const login=createServerFn({method:"POST"}).handler(async({data}:{data:{email:string;password:string}})=>{
  const email=String(data.email||"").trim().toLowerCase(),password=String(data.password||"");
  if(!email||!password)throw new Error("Email and password are required");
@@ -51,6 +67,99 @@ export const login=createServerFn({method:"POST"}).handler(async({data}:{data:{e
  await sb.from("users").update({last_login_at:new Date().toISOString()}).eq("id",user.id);
  const safe={id:user.id,email:user.email,display_name:user.display_name,role:user.role};
  return {ok:true,token:signSession(safe),user:safe};
+});
+
+
+export const getAccessState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ const actor=readSession(data.token);
+ const sb=authClient();
+ if(String(actor.role).toLowerCase()!=="owner") return {users:[],groups:[],ownerOnly:true,permissions:GROUP_PERMISSIONS};
+ const [{data:users,error:usersError},{data:groups,error:groupsError},{data:memberships,error:membershipError}]=await Promise.all([
+  sb.from("users").select("id,email,display_name,role,status,last_login_at,created_at").order("created_at",{ascending:true}),
+  sb.from("access_groups").select("id,name,description,permissions,created_at").order("name",{ascending:true}),
+  sb.from("user_access_groups").select("user_id,group_id"),
+ ]);
+ if(usersError)throw new Error("Unable to load Dev Panel users");
+ if(groupsError)throw new Error("Unable to load access groups. Apply the Dev Panel access migration first.");
+ if(membershipError)throw new Error("Unable to load group memberships");
+ return {users:users||[],groups:groups||[],memberships:memberships||[],ownerOnly:false,permissions:GROUP_PERMISSIONS};
+});
+
+export const createPanelUser=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;email:string;displayName:string;role:"owner"|"admin";password:string;groupIds?:string[]}})=>{
+ const actor=requireOwner(data.token);
+ const email=String(data.email||"").trim().toLowerCase();
+ const displayName=String(data.displayName||"").trim();
+ const role=String(data.role||"admin").toLowerCase();
+ if(!email||!email.includes("@"))throw new Error("Enter a valid email address");
+ if(!displayName)throw new Error("Display name is required");
+ if(!["owner","admin"].includes(role))throw new Error("Role must be Owner or Admin");
+ const {hash,salt}=hashPassword(String(data.password||""));
+ const sb=authClient();
+ const {data:user,error}=await sb.from("users").insert({email,display_name:displayName,role,status:"active",password_hash:hash,password_salt:salt}).select("id,email,display_name,role,status,last_login_at,created_at").single();
+ if(error)throw new Error(error.code==="23505"?"A user with that email already exists":"Unable to create user");
+ const groupIds=[...new Set((data.groupIds||[]).map(String).filter(Boolean))];
+ if(groupIds.length){
+  const {error:membershipError}=await sb.from("user_access_groups").insert(groupIds.map(group_id=>({user_id:user.id,group_id})));
+  if(membershipError)throw new Error("User created, but group assignment failed");
+ }
+ await sb.from("panel_access_audit").insert({actor_id:actor.id,action:"user.created",target_type:"user",target_id:user.id,detail:{email,role}});
+ return {user};
+});
+
+export const updatePanelUser=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;userId:string;role?:"owner"|"admin";status?:"active"|"disabled";displayName?:string;password?:string;groupIds?:string[]}})=>{
+ const actor=requireOwner(data.token);
+ const sb=authClient();
+ const patch:any={updated_at:new Date().toISOString()};
+ if(data.role){if(!["owner","admin"].includes(data.role))throw new Error("Invalid role");patch.role=data.role}
+ if(data.status){if(!["active","disabled"].includes(data.status))throw new Error("Invalid status");patch.status=data.status}
+ if(typeof data.displayName==="string"){const v=data.displayName.trim();if(!v)throw new Error("Display name is required");patch.display_name=v}
+ if(data.password){const hp=hashPassword(data.password);patch.password_hash=hp.hash;patch.password_salt=hp.salt}
+ if(String(data.userId)===actor.id&&patch.status==="disabled")throw new Error("You cannot disable your own Owner account");
+ if(patch.role==="admin"||patch.status==="disabled"){
+  const {data:target}=await sb.from("users").select("role,status").eq("id",data.userId).maybeSingle();
+  if(target?.role==="owner"&&target?.status==="active"){
+   const {count}=await sb.from("users").select("id",{count:"exact",head:true}).eq("role","owner").eq("status","active");
+   if((count||0)<=1)throw new Error("At least one active Owner account is required");
+  }
+ }
+ const {data:user,error}=await sb.from("users").update(patch).eq("id",data.userId).select("id,email,display_name,role,status,last_login_at,created_at").single();
+ if(error)throw new Error("Unable to update user");
+ if(Array.isArray(data.groupIds)){
+  const {error:deleteError}=await sb.from("user_access_groups").delete().eq("user_id",data.userId);
+  if(deleteError)throw new Error("User updated, but group memberships could not be reset");
+  const ids=[...new Set(data.groupIds.map(String).filter(Boolean))];
+  if(ids.length){
+   const {error:insertError}=await sb.from("user_access_groups").insert(ids.map(group_id=>({user_id:data.userId,group_id})));
+   if(insertError)throw new Error("User updated, but group membership assignment failed");
+  }
+ }
+ await sb.from("panel_access_audit").insert({actor_id:actor.id,action:"user.updated",target_type:"user",target_id:data.userId,detail:{role:data.role,status:data.status}});
+ return {user};
+});
+
+export const createAccessGroup=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;name:string;description?:string;permissions?:string[]}})=>{
+ const actor=requireOwner(data.token);
+ const name=String(data.name||"").trim();
+ if(!name)throw new Error("Group name is required");
+ const permissions=[...new Set((data.permissions||[]).filter((x:string)=>GROUP_PERMISSIONS.includes(x as any)))];
+ const sb=authClient();
+ const {data:group,error}=await sb.from("access_groups").insert({name,description:String(data.description||"").trim(),permissions}).select("*").single();
+ if(error)throw new Error(error.code==="23505"?"A group with that name already exists":"Unable to create group");
+ await sb.from("panel_access_audit").insert({actor_id:actor.id,action:"group.created",target_type:"group",target_id:group.id,detail:{name,permissions}});
+ return {group};
+});
+
+export const updateAccessGroup=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;groupId:string;name?:string;description?:string;permissions?:string[]}})=>{
+ const actor=requireOwner(data.token);
+ const patch:any={updated_at:new Date().toISOString()};
+ if(typeof data.name==="string"){const name=data.name.trim();if(!name)throw new Error("Group name is required");patch.name=name}
+ if(typeof data.description==="string")patch.description=data.description.trim();
+ if(Array.isArray(data.permissions))patch.permissions=[...new Set(data.permissions.filter((x:string)=>GROUP_PERMISSIONS.includes(x as any)))];
+ const sb=authClient();
+ const {data:group,error}=await sb.from("access_groups").update(patch).eq("id",data.groupId).select("*").single();
+ if(error)throw new Error("Unable to update group");
+ await sb.from("panel_access_audit").insert({actor_id:actor.id,action:"group.updated",target_type:"group",target_id:data.groupId,detail:patch});
+ return {group};
 });
 
 export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";channel?:string}})=>{
@@ -107,7 +216,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  readSession(data.token);
  const version=data.version.trim();
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
- if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one update target (Base, Apex, MCP, or Studio).");
+ if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one Engine update target (Apex, MCP, or Studio).");
  const channel=normalizeChannel(data.channel);
  const expectedTemplate = data.type === "base" ? "base_deployment_log" : "update_changelog";
  if (data.changelogTemplate !== expectedTemplate) throw new Error(`Use the ${expectedTemplate === "base_deployment_log" ? "Base Deployment Log" : "Update Changelog"} template for this release type.`);
@@ -150,7 +259,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  }
 
  const selectedComponents = data.type === "engine"
-   ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["base","apex","mcp","studio"].includes(x)))]
+   ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["apex","mcp","studio"].includes(x)))]
    : ["base"];
 
  const releaseRecord = {
@@ -179,7 +288,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   previous_source_commit:previousSourceCommit,
  };
  if(data.type==="base") inputs.release_record=JSON.stringify(releaseRecord);
- if(data.type==="engine")Object.assign(inputs,{base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
+ if(data.type==="engine")Object.assign(inputs,{apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
  const dispatchedAt=Date.now();
   await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
   let runId:number|undefined;
@@ -192,6 +301,109 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
     }catch{}
   }
   return {ok:true,repo,ref,workflow,channel,runId:runId||null};
+});
+
+
+export const getControlState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ readSession(data.token);
+ const [base,updates,channels,audit]=await Promise.all([
+  licenseMaster('/releases?product=orbitfs_base&type=base&include_archived=true'),
+  licenseMaster('/releases?product=orbitfs_base&type=update&include_archived=true'),
+  licenseMaster('/release-channels?include_disabled=true'),
+  licenseMaster('/audit-events?limit=100')
+ ]);
+ return {
+  releases:[...(base?.releases||[]),...(updates?.releases||[])].sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime()),
+  channels:channels?.channels||[],
+  audit:audit?.events||[],
+  repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}},
+  masterUrl:masterUrl()
+ };
+});
+
+export const controlRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;releaseId:string;action:"approve"|"reject"|"rollback"|"withdraw"|"archive"|"restore";reason?:string}})=>{
+ const actor=readSession(data.token);
+ if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
+ const id=String(data.releaseId||"").trim();
+ if(!id)throw new Error("Release ID is required");
+ const action=String(data.action||"").trim().toLowerCase();
+ if(!["approve","reject","rollback","withdraw","archive","restore"].includes(action))throw new Error("Unsupported release action");
+ const result=await licenseMaster(`/releases/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify({action,reason:data.reason||undefined})});
+ return result;
+});
+
+export const getChannelsState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ readSession(data.token);
+ const [channels,requests,access]=await Promise.all([
+  licenseMaster('/release-channels?include_disabled=true'),
+  licenseMaster('/release-channels/access?status=all'),
+  licenseMaster('/release-channels/access?view=access&status=all')
+ ]);
+ return {channels:channels?.channels||[],requests:requests?.requests||[],access:access?.access||[]};
+});
+
+export const saveReleaseChannel=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;channel:string;label:string;description?:string;enabled:boolean;customerVisible:boolean;accessMode:string;accessRequestEnabled:boolean;selfJoinEnabled:boolean;sortOrder?:number}})=>{
+ const actor=readSession(data.token);
+ if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
+ const channel=String(data.channel||"").trim().toLowerCase();
+ if(!channel)throw new Error("Channel is required");
+ return licenseMaster('/release-channels',{method:"POST",body:JSON.stringify({
+   channel,label:String(data.label||channel).trim(),description:String(data.description||"").trim(),
+   enabled:Boolean(data.enabled),customer_visible:Boolean(data.customerVisible),
+   access_mode:String(data.accessMode||"assigned").trim().toLowerCase(),
+   access_request_enabled:Boolean(data.accessRequestEnabled),self_join_enabled:Boolean(data.selfJoinEnabled),
+   sort_order:Number.isFinite(Number(data.sortOrder))?Number(data.sortOrder):0
+ })});
+});
+
+export const reviewChannelAccess=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;action:"grant"|"reject"|"revoke";licenseId:string;channel:string;reason?:string}})=>{
+ const actor=readSession(data.token);
+ if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
+ const licenseId=String(data.licenseId||"").trim(),channel=String(data.channel||"").trim().toLowerCase();
+ if(!licenseId||!channel)throw new Error("License and channel are required");
+ return licenseMaster('/release-channels/access',{method:"POST",body:JSON.stringify({action:data.action,license_id:licenseId,channel,reason:data.reason||undefined})});
+});
+
+export const getAuditState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;limit?:number}})=>{
+ readSession(data.token);
+ const limit=Math.min(200,Math.max(1,Number(data.limit||100)));
+ const result=await licenseMaster(`/audit-events?limit=${limit}`);
+ return {events:result?.events||[]};
+});
+
+export const getRepositoryStatus=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ readSession(data.token);
+ const configs=[
+  {key:"base",repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},
+  {key:"engine",repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW},
+ ];
+ const rows:any[]=[];
+ for(const cfg of configs){
+  let head:any=null,run:any=null;
+  try{const branch=await github(`/repos/${cfg.repo}/git/ref/heads/${encodeURIComponent(cfg.ref)}`);head=branch?.object?.sha||null;}catch{}
+  try{
+   const runs=await github(`/repos/${cfg.repo}/actions/workflows/${encodeURIComponent(cfg.workflow)}/runs?branch=${encodeURIComponent(cfg.ref)}&per_page=1`);
+   run=(runs?.workflow_runs||[])[0]||null;
+  }catch{}
+  rows.push({...cfg,head,run});
+ }
+ return {repositories:rows};
+});
+
+export const getPortalMonitor=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ readSession(data.token);
+ const [base,updates,channels]=await Promise.all([
+  licenseMaster('/releases?product=orbitfs_base&type=base&include_archived=true'),
+  licenseMaster('/releases?product=orbitfs_base&type=update&include_archived=true'),
+  licenseMaster('/release-channels?include_disabled=true')
+ ]);
+ const releases=[...(base?.releases||[]),...(updates?.releases||[])];
+ return {
+  releases,
+  published:releases.filter((r:any)=>r.status==="published"&&!r.archived_at),
+  channels:channels?.channels||[],
+  portalUrl:(process.env.CUSTOMER_PORTAL_URL||process.env.BILLING_STORE_URL||"").replace(/\/+$/,"")
+ };
 });
 
 async function requestJson(url:string,init:RequestInit={}){

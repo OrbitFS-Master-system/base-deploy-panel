@@ -1,19 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ReleaseWorkspace } from "@/components/release-workspace";
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertCircle, ArrowRight, CheckCircle2, ChevronRight, CircleDot,
   Clock3, FileCode2, GitBranch, Github, Layers3, Loader2, PackageCheck,
   RefreshCw, Rocket, ScrollText, Server, Settings2, ShieldCheck, Terminal,
-  UploadCloud, XCircle, Zap
+  UploadCloud, XCircle, Zap, Search, Boxes, Gauge, GitCommit, BarChart3, Bell, Menu, ChevronDown,
+  Users, UserPlus, KeyRound, Globe2, History, UserCog
 } from "lucide-react";
 import {
   getPanelState, inspectSource, startRelease, getReleaseRun,
-  getReleaseHandoff, login
+  getReleaseHandoff, login, getAccessState, createPanelUser,
+  updatePanelUser, createAccessGroup, updateAccessGroup, getControlState,
+  controlRelease, getChannelsState, saveReleaseChannel, reviewChannelAccess,
+  getAuditState, getRepositoryStatus, getPortalMonitor
 } from "@/lib/panel.server";
 
 export const Route = createFileRoute("/")({ component: Index });
 
-type Tab = "overview" | "base" | "engine" | "activity" | "settings";
+type Tab = "overview" | "releases" | "base" | "engine" | "activity" | "channels" | "portal" | "repositories" | "monitoring" | "audit" | "access" | "settings";
 type ReleaseType = "base" | "engine";
 
 const EMPTY = { releases: [], channels: [] };
@@ -156,7 +161,7 @@ function Index() {
       const r = await inspectSource({ data: { token: session.token, type, from: current, channel } });
       setFiles(r.files || []);
       setCommits(r.commits || []);
-      setBaseline(r.baseline || null);
+      setBaseline({ ...(r.baseline || {}), repo: r.repo, ref: r.ref, head: r.head, baseBaseline: r.baseBaseline || null });
       if (type === "engine" && r.baseBaseline?.version) setMinBase(String(r.baseBaseline.version));
       setChangelogTemplate(type === "base" ? "base_deployment_log" : "update_changelog");
       setChangelogDraft(buildChangelog(type, {
@@ -190,9 +195,8 @@ function Index() {
       setRun(r.runId ? { id: r.runId, status: "queued", conclusion: null, name: `${type === "base" ? "Base" : "Engine"} release` } : null);
       setRunRepo(r.repo); setRunVersion(version); setRunChannel(channel); setHandoff(null);
       setNotice(r.runId ? `Release sent · GitHub workflow run #${r.runId} started.` : "Release sent to GitHub. Waiting for the workflow run to appear.");
-      setVersion(""); setNotes(""); setChangelogDraft(""); setChangelogTemplate("base_deployment_log"); setFiles([]); setCommits([]);
       try { await load(session, true); } catch {}
-      setTab("activity");
+      setTab(type === "base" ? "base" : "engine");
     } catch (x: any) {
       setError(x.message || "Unable to start release.");
     } finally { setBusy(""); }
@@ -222,18 +226,27 @@ function Index() {
           <div className="mx-auto max-w-[1440px] space-y-4">
             {error && <Alert tone="error" onClose={() => setError("")}>{error}</Alert>}
             {notice && <Alert tone="success" onClose={() => setNotice("")}>{notice}</Alert>}
-            {run && <LiveConsole run={run} repo={runRepo} handoff={handoff} />}
-            {tab === "overview" && <Dashboard stats={stats} releases={allReleases} connected={masterConnected} onBase={() => { resetComposer(); setTab("base"); }}
-              onEngine={() => { resetComposer(); setTab("engine"); }} onActivity={() => setTab("activity")} />}
-            {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
+            {tab === "overview" && <Dashboard stats={stats} releases={allReleases} connected={masterConnected} run={run} channels={availableChannels}
+              onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }}
+              onActivity={() => setTab("activity")} onReleases={() => setTab("releases")} />}
+            {tab === "releases" && <ReleasesPage releases={allReleases} session={session} onChanged={()=>load(session,true)} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
+            {tab === "base" && <Composer type="base" releases={data.base.releases||[]} session={session} {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
-              onInspect={() => inspect("base")} onStart={() => start("base")} />}
-            {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
+              onInspect={() => inspect("base")} onStart={() => start("base")}
+              run={runRepo === "lucaskerim123/V1-vercel-base" ? run : null} runRepo={runRepo} handoff={handoff} connected={masterConnected} />}
+            {tab === "engine" && <Composer type="engine" releases={data.engine.releases||[]} session={session} {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
-              onInspect={() => inspect("engine")} onStart={() => start("engine")} />}
-            {tab === "activity" && <ActivityPage releases={allReleases} run={run} />}
+              onInspect={() => inspect("engine")} onStart={() => start("engine")}
+              run={runRepo === "lucaskerim123/V1-vercel-engine" ? run : null} runRepo={runRepo} handoff={handoff} connected={masterConnected} />}
+            {tab === "activity" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} session={session} />}
+            {tab === "repositories" && <RepositoriesPage data={data} session={session} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
+            {tab === "channels" && <ChannelsPage channels={availableChannels} data={data} session={session} />}
+            {tab === "portal" && <CustomerPortalPage releases={allReleases} channels={availableChannels} session={session} />}
+            {tab === "monitoring" && <SystemMonitoringPage releases={allReleases} connected={masterConnected} run={run} />}
+            {tab === "audit" && <AuditPage releases={allReleases} run={run} session={session} />}
+            {tab === "access" && <AccessPage session={session} />}
             {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
           </div>
         </main>
@@ -271,16 +284,22 @@ function Login(p: any) {
 }
 
 function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
-  return <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-    <div className="mx-auto flex h-14 max-w-[1680px] items-center justify-between px-4 sm:px-6 xl:px-8">
-      <div className="flex items-center gap-3 min-w-0"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-black text-primary-foreground">O</div>
-        <div className="min-w-0"><div className="truncate text-sm font-semibold">OrbitFS Release Control</div><div className="hidden text-[11px] text-muted-foreground sm:block">Stage 1 · Release preparation</div></div>
+  return <header className="orbit-topbar sticky top-0 z-30 border-b lg:ml-0">
+    <div className="flex h-[66px] items-center justify-between gap-3 px-4 sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="lg:hidden orbit-logo scale-90"><span></span></div>
+        <div className="orbit-search hidden max-w-[560px] flex-1 items-center gap-2 md:flex">
+          <Search size={15}/><span className="text-xs text-muted-foreground">Search repositories, releases, or commits...</span><kbd>/</kbd>
+        </div>
       </div>
       <div className="flex items-center gap-2">
-        <div className="hidden items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-xs sm:flex"><i className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-destructive"}`} />{connected ? "License Master" : "Master offline"}</div>
-        <button className="icon-button" title="Refresh" onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} size={15} /></button>
-        <div className="hidden border-l pl-2 text-right sm:block"><p className="text-xs font-medium">{user.display_name || user.email}</p><p className="text-[10px] text-muted-foreground">{user.role || "operator"}</p></div>
-        <button className="icon-button" title="Sign out" onClick={onSignOut}><UploadCloud className="rotate-180" size={15} /></button>
+        <button className="icon-button border-0 bg-transparent" title="Refresh" onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} size={16} /></button>
+        <span className={`hidden rounded-full border px-2.5 py-1 text-[10px] font-semibold sm:inline-flex ${connected ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>
+          {connected ? "Master online" : "Master offline"}
+        </span>
+        <div className="hidden h-8 w-px bg-border sm:block"/>
+        <div className="hidden text-right sm:block"><p className="text-xs font-medium">{user.display_name || user.email}</p><p className="text-[10px] text-muted-foreground">{user.role || "operator"}</p></div>
+        <button className="orbit-avatar" title="Sign out" onClick={onSignOut}>{String(user.display_name || user.email || "O").slice(0,1).toUpperCase()}</button>
       </div>
     </div>
   </header>;
@@ -288,31 +307,43 @@ function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
 
 function Sidebar({ tab, setTab, activeRun }: any) {
   const items = [
-    ["overview", "Dashboard", "System overview", Activity],
-    ["base", "Base release", "orbitfs_base", Rocket],
-    ["engine", "Engine updates", "MCP · Apex · Studio", Layers3],
-    ["activity", "Releases & runs", "History and live jobs", Terminal],
-    ["settings", "Configuration", "Connections and sources", Settings2],
+    ["overview", "Dashboard", "Release control overview", Gauge],
+    ["base", "Base Deployments", "Base release workspace", Rocket],
+    ["engine", "Updates", "Manifest-driven updates", Layers3],
+    ["releases", "Releases", "Combined release registry", PackageCheck],
+    ["activity", "Release Monitoring", "Live workflow health", Activity],
+    ["channels", "Channels", "Release access channels", Server],
+    ["portal", "Customer Portal", "Publication & access state", Globe2],
+    ["repositories", "Repositories", "Source & workers", Boxes],
+    ["monitoring", "Monitoring", "System telemetry", BarChart3],
+    ["audit", "Audit & History", "Release and access events", History],
+    ["access", "Users & Access", "Owner-managed access", Users],
+    ["settings", "Configuration", "Runtime configuration", Settings2],
   ] as const;
-  return <aside className="hidden w-60 shrink-0 border-r lg:block">
-    <div className="sticky top-14 p-3">
-      <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">Workspace</p>
+  return <aside className="orbit-sidebar hidden w-[230px] shrink-0 lg:block">
+    <div className="sticky top-0 flex h-screen flex-col px-3 py-5">
+      <div className="mb-7 flex items-center gap-3 px-2">
+        <div className="orbit-logo"><span></span></div>
+        <div><p className="text-lg font-semibold tracking-tight">OrbitFS</p><p className="text-[10px] text-muted-foreground">Release Control</p></div>
+      </div>
       <nav className="space-y-1">
         {items.map(([id, label, detail, Icon]) => <button key={id} onClick={() => setTab(id as Tab)}
-          className={`nav-item ${tab === id ? "nav-item-active" : ""}`}>
-          <span className="nav-icon"><Icon size={15} /></span><span className="min-w-0"><b>{label}</b><small>{detail}</small></span>
-          {id === "activity" && activeRun && <span className="ml-auto h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
+          className={`orbit-nav-item ${tab === id ? "orbit-nav-active" : ""}`}>
+          <span className="orbit-nav-icon"><Icon size={16} /></span>
+          <span className="min-w-0 flex-1"><b>{label}</b><small>{detail}</small></span>
+          {id === "activity" && activeRun && <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
         </button>)}
       </nav>
-      <div className="mt-6 rounded-xl border bg-card/60 p-3">
-        <p className="flex items-center gap-2 text-xs font-semibold"><ShieldCheck size={14} /> Controlled pipeline</p>
-        <div className="mt-3 space-y-2 text-[11px] text-muted-foreground">
+      <div className="mt-auto rounded-xl border border-[#173555] bg-[#081828]/70 p-3">
+        <p className="text-[10px] uppercase tracking-[.14em] text-muted-foreground">Pipeline authority</p>
+        <div className="mt-3 space-y-2">
           <StepLine n="1" text="Dev Panel prepares" active />
           <StepLine n="2" text="License Master validates" />
           <StepLine n="3" text="Billing Store reviews" />
           <StepLine n="4" text="Customer release publishes" />
         </div>
       </div>
+      <p className="px-2 pt-5 text-xs leading-5 text-[#6885a3]">Build further.<br/>Ship with OrbitFS.</p>
     </div>
   </aside>;
 }
@@ -321,39 +352,59 @@ function StepLine({ n, text, active }: any) {
   return <div className={`flex items-center gap-2 ${active ? "text-foreground" : ""}`}><span className="flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-bold">{n}</span>{text}</div>;
 }
 
-function Dashboard({ stats, releases, connected, onBase, onEngine, onActivity }: any) {
-  const recent = releases.slice(0, 6);
+function Dashboard({ stats, releases, connected, run, channels, onBase, onEngine, onActivity, onReleases }: any) {
+  const recent = releases.slice(0, 5);
+  const series = releaseSeries(releases);
+  const healthy = releases.filter((r:any)=>r.manifest?.validation?.status!=="failed").length;
+  const health = releases.length ? Math.round((healthy/releases.length)*100) : 100;
   return <section className="space-y-5">
-    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
-      <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">Developer workspace</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Prepare the next OrbitFS release.</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Stage 1 handles source inspection, change detection, release metadata, changelog context and workflow dispatch before License Master takes over technical validation.</p></div>
-      <div className="flex gap-2"><button className="button-primary" onClick={onBase}><Rocket size={15}/> New Base</button><button className="button-secondary" onClick={onEngine}><Layers3 size={15}/> New Engine update</button></div>
+    <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-primary">Release workspace</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Ship what’s next.</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Create, manage, and monitor OrbitFS releases while keeping License Master as the technical authority.</p>
+      </div>
+      <div className="flex gap-2"><button className="button-secondary" onClick={onReleases}>All releases</button><button className="button-primary" onClick={onEngine}><Rocket size={15}/> New release</button></div>
     </div>
-    <div className="grid grid-cols-2 overflow-hidden rounded-xl border bg-border md:grid-cols-4">
+
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Metric label="Release health" value={`${health}%`} detail={connected ? "License Master connected" : "Master connection unavailable"} />
       <Metric label="Candidates" value={stats.candidates} detail="Awaiting validation/review" />
-      <Metric label="Validation failed" value={stats.validationFailed} detail="Needs attention" />
-      <Metric label="Ready" value={stats.ready} detail="Approved, not published" />
-      <Metric label="Published" value={stats.published} detail="Current release history" />
+      <Metric label="Published" value={stats.published} detail="Visible release history" />
+      <Metric label="Active pipeline" value={run && !run.conclusion ? "1" : "0"} detail={run && !run.conclusion ? `Run #${run.id}` : "No workflow running"} />
     </div>
-    <div className="grid gap-4 xl:grid-cols-[1.4fr_.9fr]">
-      <section className="release-surface p-4 sm:p-5">
-        <SectionHead icon={Zap} title="Release pipeline" detail="The handoff path for every product release." />
-        <div className="mt-5 grid gap-2 sm:grid-cols-4">
-          <PipelineStep icon={FileCode2} title="Inspect" text="Compare source against the last approved commit." />
-          <PipelineStep icon={ScrollText} title="Prepare" text="Build version, channel, notes and compatibility metadata." />
-          <PipelineStep icon={Github} title="Run" text="Dispatch the existing GitHub worker and watch every job." />
-          <PipelineStep icon={ShieldCheck} title="Handoff" text="License Master receives the candidate for validation." />
+
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_360px]">
+      <section className="release-surface overflow-hidden">
+        <div className="flex items-center justify-between border-b p-4">
+          <SectionHead icon={PackageCheck} title="Recent releases" detail="Latest release candidates known to License Master."/>
+          <button className="text-xs font-medium text-primary" onClick={onReleases}>View all →</button>
+        </div>
+        <div>{recent.map((r:any)=><ReleaseSummaryRow key={r.id} release={r}/>)}
+          {!recent.length&&<div className="p-10 text-center text-sm text-muted-foreground">No release records are currently visible.</div>}
         </div>
       </section>
-      <section className="release-surface p-4 sm:p-5">
-        <SectionHead icon={Server} title="System status" detail="Live connections used by Stage 1." />
-        <div className="mt-4 space-y-2"><StatusRow label="License Master API" value={connected ? "Connected" : "Unavailable"} good={connected} /><StatusRow label="Base worker" value="V1-vercel-base" /><StatusRow label="Engine worker" value="V1-vercel-engine" /></div>
-      </section>
+
+      <div className="space-y-4">
+        <section className="release-surface p-4">
+          <div className="flex items-center justify-between"><SectionHead icon={Activity} title="Release activity" detail="Release records created over the last 7 days."/><span className="text-xs font-semibold">{series.reduce((n:number,x:any)=>n+x.count,0)}</span></div>
+          <MiniLineChart data={series}/>
+        </section>
+        <section className="release-surface p-4">
+          <SectionHead icon={ShieldCheck} title="Connected pipeline" detail="Authority stays separated across systems."/>
+          <div className="mt-4 space-y-2"><StatusRow label="License Master" value={connected ? "Connected" : "Unavailable"} good={connected}/><StatusRow label="Release channels" value={channels.length ? channels.join(", ") : "None reported"}/><StatusRow label="Base worker" value="V1-vercel-base"/><StatusRow label="Engine worker" value="V1-vercel-engine"/></div>
+        </section>
+      </div>
     </div>
-    <section className="release-surface overflow-hidden">
-      <div className="flex items-center justify-between border-b p-4"><SectionHead icon={Clock3} title="Recent releases" detail="Latest candidates known to License Master."/><button className="text-xs font-medium text-primary" onClick={onActivity}>View all →</button></div>
-      <ReleaseTable releases={recent} />
+
+    <section className="release-surface p-4 sm:p-5">
+      <SectionHead icon={Zap} title="Release pipeline" detail="The handoff remains the same; only the control surface is changing." />
+      <div className="mt-5 grid gap-2 sm:grid-cols-4">
+        <PipelineStep icon={FileCode2} title="Inspect" text="Compare source against the approved baseline." />
+        <PipelineStep icon={ScrollText} title="Prepare" text="Build version, changelog and compatibility metadata." />
+        <PipelineStep icon={Github} title="Run" text="Dispatch the existing GitHub release worker." />
+        <PipelineStep icon={ShieldCheck} title="Handoff" text="License Master receives and validates the candidate." />
+      </div>
     </section>
   </section>;
 }
@@ -366,56 +417,17 @@ function PipelineStep({ icon: Icon, title, text }: any) {
   return <div className="rounded-lg border bg-background/40 p-3"><Icon size={16} className="text-primary"/><p className="mt-3 text-xs font-semibold">{title}</p><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{text}</p></div>;
 }
 
-function Composer(p: any) {
-  const base = p.type === "base";
-  const currentVersion = p.baseline?.version || null;
-  const suggestedVersion = currentVersion && /^\d+\.\d+\.\d+/.test(String(currentVersion))
-    ? String(currentVersion).replace(/^(\d+)\.(\d+)\.(\d+).*$/, (_: string, major: string, minor: string, patch: string) => \`${major}.${minor}.${Number(patch) + 1}\`)
-    : "";
-  const canStart = Boolean(p.version.trim()) && (base || p.components.length > 0);
-  const templateLabel = base ? "Base Deployment Log" : "Update Changelog";
-  return <section className="space-y-4">
-    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
-      <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">{base ? "Base release" : "Engine update"}</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{base ? "Prepare a Base release." : "Prepare an Engine update."}</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{base ? "Package the current orbitfs_base source state through the existing Base worker." : "Choose affected components, inspect source changes and prepare the Engine handoff."}</p></div>
-      <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs"><GitBranch size={14}/><code>{base ? "base-release" : "UPDATE_RELEASE"}</code></div>
-    </div>
-    <div className="grid gap-4 xl:grid-cols-[1fr_330px]">
-      <section className="release-surface p-4 sm:p-5">
-        <SectionHead icon={Settings2} title="Release definition" detail="These values become the Stage 1 handoff inputs." />
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <div><Field label="Version"><input className="control" placeholder="1.2.3" value={p.version} onChange={e => p.setVersion(e.target.value)}/></Field>{suggestedVersion&&<button type="button" className="mt-1 text-[11px] font-medium text-primary" onClick={()=>p.setVersion(suggestedVersion)}>Use next patch · {suggestedVersion}</button>}</div>
-          <Field label="Channel"><select className="control" value={p.channel} onChange={e => p.setChannel(e.target.value)}>{(p.availableChannels?.length ? p.availableChannels : ["stable"]).map((x:string)=><option key={x}>{x}</option>)}</select></Field>
-        </div>
-        {!base && <><div className="mt-5 border-t pt-5"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Components</p><div className="mt-3 grid gap-2 sm:grid-cols-3">{["base","apex","mcp","studio"].map((c:string)=><button type="button" key={c} onClick={()=>p.setComponents((x:string[])=>x.includes(c)?x.filter(y=>y!==c):[...x,c])} className={`rounded-lg border p-3 text-left ${p.components.includes(c)?"border-primary bg-primary/10":"bg-background hover:bg-accent"}`}><span className="text-xs font-semibold">{c.toUpperCase()}</span><span className="mt-1 block text-[11px] text-muted-foreground">{p.components.includes(c)?"Included":"Not selected"}</span></button>)}</div></div>
-        <div className="mt-5 grid gap-4 border-t pt-5 sm:grid-cols-2"><Field label="Minimum Base version"><input className="control" value={p.minBase} onChange={e=>p.setMinBase(e.target.value)}/></Field><Field label="Minimum deployer protocol"><input className="control" value={p.protocol} onChange={e=>p.setProtocol(e.target.value)}/></Field></div></>}
-        <div className="mt-5 border-t pt-5">
-          <Field label="Changelog template">
-            <select className="control" value={p.changelogTemplate} disabled>
-              <option value="base_deployment_log">Base Deployment Log</option>
-              <option value="update_changelog">Update Changelog</option>
-            </select>
-          </Field>
-          <p className="mt-1 text-[11px] text-muted-foreground">Template is fixed by release type: Base releases use the Base Deployment Log; Engine updates use the Update Changelog. The generated text remains fully editable below.</p>
-        </div>
-        <div className="mt-5 border-t pt-5"><Field label={base ? "Additional operator notes" : "Additional developer notes"}><textarea className="control min-h-24 resize-y" placeholder="Optional extra context. It will be included when the changelog is generated." value={p.notes} onChange={e=>p.setNotes(e.target.value)}/></Field></div>
-        <div className="mt-5 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" disabled={p.busy==="inspect"} onClick={p.onInspect}>{p.busy==="inspect"?<Loader2 className="animate-spin" size={15}/>:<FileCode2 size={15}/>} Inspect source changes</button><span className="text-[11px] text-muted-foreground">Inspect first. Review the generated changelog below. Sending happens after the review.</span></div>
-        {!canStart && <p className="mt-2 text-right text-[11px] text-muted-foreground">{base?"Enter a SemVer version to continue.":"Enter a version and select at least one component."}</p>}
-        {canStart&&!p.reviewOpen&&<p className="mt-2 text-right text-[11px] text-muted-foreground">Inspect the source first. The release stays gated until the generated changelog has been reviewed.</p>}
-      </section>
-      <section className="release-surface p-4 sm:p-5">
-        <SectionHead icon={ScrollText} title={base?"Release summary":"Review gate"} detail={base?"What Stage 1 will hand to the worker.":"Confirm the generated source context before dispatch."}/>
-        <div className="mt-4 rounded-lg border bg-background/50 p-3 font-mono text-[11px] leading-6 text-muted-foreground">
-          <p><span className="text-foreground">baseline</span> = {currentVersion || "none published"}</p><p><span className="text-foreground">source</span> = {p.baseline?.sourceSha ? p.baseline.sourceSha.slice(0, 8) : "none"}</p>
-          <p><span className="text-foreground">product</span> = orbitfs_base</p><p><span className="text-foreground">type</span> = {base?"base":"update"}</p><p><span className="text-foreground">version</span> = {p.version||"not set"}</p><p><span className="text-foreground">channel</span> = {p.channel}</p><p><span className="text-foreground">changes</span> = {p.files.length}</p>{!base&&<><p><span className="text-foreground">components</span> = {p.components.map((x:string)=>x==="base"?"BASE":x.toUpperCase()).join(", ")||"none"}</p><p><span className="text-foreground">minBase</span> = {p.minBase}</p><p><span className="text-foreground">protocol</span> = {p.protocol}</p></>}
-        </div>
-        <div className="mt-4 rounded-lg border p-3 text-xs"><p className="font-medium">Stage 1 does not publish customers.</p><p className="mt-1 leading-5 text-muted-foreground">It prepares and dispatches the candidate. License Master validates it; Billing Store handles the final publication workflow.</p></div>
-      </section>
-    </div>
-    <ChangelogEditor type={p.type} template={p.changelogTemplate} value={p.changelogDraft} onChange={p.setChangelogDraft} commits={p.commits || []} files={p.files || []} canStart={canStart} reviewOpen={p.reviewOpen} busy={p.busy} onStart={p.onStart} />
-  </section>;
+function Composer(p:any){ return <ReleaseWorkspace {...p}/>; }
+
+function PipelineNode({n,label,state}:any){
+  const good=state==="passed", active=state==="running", bad=state==="failed";
+  return <div className={`orbit-pipeline-node ${good?"is-good":active?"is-active":bad?"is-bad":""}`}><span>{n}</span><b>{label}</b><small>{state}</small></div>;
 }
+function TechStat({label,value,mono,good}:any){return <div className="orbit-tech-stat"><span>{label}</span><strong className={`${mono?"font-mono":""} ${good?"text-emerald-300":""}`}>{value}</strong></div>}
+function TechRow({label,value}:any){return <div className="orbit-tech-row"><span>{label}</span><code>{value}</code></div>}
+function GateRow({label,ok}:any){return <div className="orbit-gate-row"><span>{ok?<CheckCircle2 size={14}/>:<Clock3 size={14}/>}</span><p>{label}</p><small>{ok?"ready":"waiting"}</small></div>}
+function HandoffRow({label,detail,state}:any){const good=["passed","success","approved","received"].includes(state), active=["running","pending"].includes(state), bad=["failed","failure"].includes(state);return <div className="orbit-handoff-row"><span className={`orbit-handoff-icon ${good?"good":active?"active":bad?"bad":""}`}>{good?<CheckCircle2 size={14}/>:bad?<XCircle size={14}/>:<Clock3 size={14}/>}</span><div><b>{label}</b><small>{detail}</small></div><code>{state}</code></div>}
+function EmptyInline({text}:any){return <div className="p-5 text-center text-[11px] text-muted-foreground">{text}</div>}
 
 function buildChangelog(type: ReleaseType, data: any) {
   const base = type === "base";
@@ -536,6 +548,229 @@ function ActivityPage({ releases, run }: any) {
 function ReleaseTable({ releases }: any) {
   return <div>{releases.map((r:any)=><div key={r.id} className="grid gap-3 border-b p-4 last:border-b-0 md:grid-cols-[1fr_120px_150px_160px] md:items-center"><div className="min-w-0"><p className="truncate text-sm font-medium">{r.product_name||"OrbitFS"} <span className="text-muted-foreground">v{r.version}</span></p><p className="mt-1 truncate text-[11px] text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref||"—"} · {(r.source_sha||"").slice(0,8)}</p></div><StatusPill text={r.status||"candidate"}/><StatusPill text={`review ${r.review_status||"pending"}`}/><StatusPill text={`validation ${r.manifest?.validation?.status||"not run"}`}/></div>)}{!releases.length&&<div className="p-10 text-center text-sm text-muted-foreground">No releases are currently visible.</div>}</div>;
 }
+
+function releaseSeries(releases:any[]) {
+  const now = new Date();
+  const days = Array.from({length:7},(_,i)=>{
+    const d=new Date(now); d.setHours(0,0,0,0); d.setDate(d.getDate()-(6-i));
+    return {key:d.toISOString().slice(0,10), label:d.toLocaleDateString(undefined,{weekday:"short"}), count:0};
+  });
+  for(const r of releases||[]) {
+    const d=new Date(r.created_at||r.published_at||0);
+    const key=Number.isFinite(d.getTime())?d.toISOString().slice(0,10):"";
+    const row=days.find(x=>x.key===key); if(row) row.count++;
+  }
+  return days;
+}
+
+function MiniLineChart({data}:any) {
+  const max=Math.max(1,...data.map((x:any)=>x.count));
+  const pts=data.map((x:any,i:number)=>`${i*(100/(data.length-1||1))},${42-(x.count/max)*34}`).join(" ");
+  return <div className="mt-4">
+    <svg viewBox="0 0 100 48" className="h-28 w-full overflow-visible" preserveAspectRatio="none">
+      <defs><linearGradient id="orbitArea" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="currentColor" stopOpacity=".32"/><stop offset="100%" stopColor="currentColor" stopOpacity="0"/></linearGradient></defs>
+      <line x1="0" y1="42" x2="100" y2="42" className="text-border" stroke="currentColor" strokeWidth=".5"/>
+      <polygon points={`0,42 ${pts} 100,42`} className="text-primary" fill="url(#orbitArea)"/>
+      <polyline points={pts} fill="none" className="text-primary" stroke="currentColor" strokeWidth="1.4" vectorEffect="non-scaling-stroke"/>
+      {data.map((x:any,i:number)=><circle key={x.key} cx={i*(100/(data.length-1||1))} cy={42-(x.count/max)*34} r="1.4" className="text-primary" fill="currentColor"/>)}
+    </svg>
+    <div className="grid grid-cols-7 text-center text-[9px] text-muted-foreground">{data.map((x:any)=><span key={x.key}>{x.label}</span>)}</div>
+  </div>;
+}
+
+function ReleaseSummaryRow({release:r}:any) {
+  const published=r.status==="published";
+  return <div className="group grid gap-3 border-b border-border/70 p-4 last:border-b-0 sm:grid-cols-[1fr_auto] sm:items-center">
+    <div className="min-w-0">
+      <div className="flex items-center gap-2"><span className="orbit-release-icon"><PackageCheck size={14}/></span><p className="truncate text-sm font-semibold">OrbitFS <span className="text-muted-foreground">v{r.version}</span></p><StatusPill text={published?"published":r.status||"candidate"}/></div>
+      <p className="mt-1.5 truncate pl-9 text-[11px] text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref||"—"} · {(r.source_sha||"").slice(0,8)}</p>
+    </div>
+    <div className="flex items-center gap-4 pl-9 text-[10px] text-muted-foreground sm:pl-0"><span>{r.review_status||"pending"} review</span><ChevronRight size={14}/></div>
+  </div>;
+}
+
+function ReleasesPage({releases,session,onChanged,onBase,onEngine}:any) {
+  const [type,setType]=useState("all");
+  const [state,setState]=useState("all");
+  const [channel,setChannelFilter]=useState("all");
+  const [query,setQuery]=useState("");
+  const [busy,setBusy]=useState("");
+  const [message,setMessage]=useState("");
+  const [error,setError]=useState("");
+  const channels=Array.from(new Set(releases.map((r:any)=>String(r.channel||"stable"))));
+  const filtered=releases.filter((r:any)=>{
+    if(type!=="all"&&String(r.release_type)!==type)return false;
+    if(state!=="all"){
+      const s=r.archived_at?"archived":String(r.status||"draft");
+      if(s!==state)return false;
+    }
+    if(channel!=="all"&&String(r.channel)!==channel)return false;
+    const q=query.trim().toLowerCase();
+    if(q&&!String(r.version||"").toLowerCase().includes(q)&&!String(r.source_sha||"").toLowerCase().includes(q)&&!String(r.product_name||"orbitfs").toLowerCase().includes(q))return false;
+    return true;
+  });
+  const act=async(row:any,action:"approve"|"reject"|"rollback"|"withdraw"|"archive"|"restore")=>{
+    setBusy(row.id+":"+action);setError("");setMessage("");
+    try{await controlRelease({data:{token:session.token,releaseId:row.id,action}});setMessage("Release action completed: "+action+".");await onChanged?.()}
+    catch(x:any){setError(x.message||"Release action failed.")}
+    finally{setBusy("")}
+  };
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end"><PageHead title="Releases" detail="Combined License Master release registry with technical lifecycle controls. Publishing is not performed here."/><div className="flex gap-2"><button className="button-secondary" onClick={onBase}><Rocket size={14}/> New Base</button><button className="button-primary" onClick={onEngine}><Layers3 size={14}/> New Update</button></div></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}{message&&<Alert tone="success" onClose={()=>setMessage("")}>{message}</Alert>}
+    <section className="release-surface p-4"><div className="grid gap-3 md:grid-cols-4"><Field label="Search"><input className="control" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Version or commit"/></Field><Field label="Type"><select className="control" value={type} onChange={e=>setType(e.target.value)}><option value="all">All</option><option value="base">Base</option><option value="update">Update</option></select></Field><Field label="State"><select className="control" value={state} onChange={e=>setState(e.target.value)}><option value="all">All</option><option value="draft">Draft</option><option value="published">Published</option><option value="disabled">Unpublished</option><option value="archived">Archived</option></select></Field><Field label="Channel"><select className="control" value={channel} onChange={e=>setChannelFilter(e.target.value)}><option value="all">All</option>{channels.map((x:any)=><option key={x} value={x}>{x}</option>)}</select></Field></div></section>
+    <section className="release-surface overflow-hidden"><div className="flex items-center justify-between border-b p-4"><SectionHead icon={PackageCheck} title="Release registry" detail={String(filtered.length)+" of "+String(releases.length)+" releases"}/><span className="text-[10px] text-muted-foreground">License Master authoritative state</span></div><div>{filtered.map((r:any)=><div key={r.id} className="border-b p-4 last:border-b-0"><div className="grid gap-3 md:grid-cols-[1fr_110px_130px_130px] md:items-center"><div className="min-w-0"><p className="truncate text-sm font-semibold">{r.product_name||"OrbitFS"} <span className="text-muted-foreground">v{r.version}</span></p><p className="mt-1 truncate text-[10px] text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref||"—"} · {(r.source_sha||"").slice(0,8)}</p></div><StatusPill text={r.archived_at?"archived":r.status||"draft"}/><StatusPill text={"review "+(r.review_status||"pending")}/><StatusPill text={"validation "+(r.manifest?.validation?.status||"not run")}/></div><div className="mt-3 flex flex-wrap gap-2">
+          {r.review_status==="pending"&&r.manifest?.validation?.status==="passed"&&<button className="button-primary" disabled={!!busy} onClick={()=>act(r,"approve")}>Approve technical review</button>}
+          {r.review_status==="pending"&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"reject")}>Reject</button>}
+          {r.release_type==="base"&&r.status==="published"&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"rollback")}>Prepare rollback</button>}
+          {r.status==="published"&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"withdraw")}>Unpublish</button>}
+          {!r.archived_at&&r.status!=="published"&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"archive")}>Archive</button>}
+          {r.archived_at&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"restore")}>Restore</button>}
+        </div></div>)}{!filtered.length&&<div className="p-10 text-center text-sm text-muted-foreground">No releases match these filters.</div>}</div></section>
+    <section className="release-surface p-4"><SectionHead icon={ShieldCheck} title="Control boundary" detail="Dev Panel can perform technical review, rollback preparation, unpublish and archive through License Master. Update customer publication remains Billing Store's final gate."/></section>
+  </section>;
+}
+
+
+function MonitoringPage({releases,run,connected,session}:any) {
+  const series=releaseSeries(releases);
+  const [repos,setRepos]=useState<any[]>([]);
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{let live=true;(async()=>{try{const r=await getRepositoryStatus({data:{token:session.token}});if(live)setRepos(r.repositories||[])}catch{}finally{if(live)setLoading(false)}})();return()=>{live=false}},[session.token,run?.id,run?.status,run?.conclusion]);
+  const failed=releases.filter((r:any)=>r.manifest?.validation?.status==="failed").length;
+  const pending=releases.filter((r:any)=>r.review_status==="pending").length;
+  return <section className="space-y-4">
+    <PageHead title="Release Monitoring" detail="Live workflow state, repository workers, License Master validation, and recent release activity."/>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Master API" value={connected?"Online":"Offline"} detail="License Master connection"/><Metric label="Validation failures" value={failed} detail="Visible failed validations"/><Metric label="Pending review" value={pending} detail="Candidates awaiting technical review"/><Metric label="Active workflow" value={run&&!run.conclusion?"1":"0"} detail={run?.id?"Run #"+run.id:"No active monitored run"}/></div>
+    <div className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
+      <section className="release-surface p-4"><SectionHead icon={Activity} title="7-day release activity" detail="Release records created per day."/><MiniLineChart data={series}/></section>
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={Github} title="Release workers" detail={loading?"Loading latest runs…":"Latest GitHub release-builder status"}/></div><div>{repos.map((row:any)=><div key={row.key} className="border-b p-4 last:border-b-0"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold">{row.key==="base"?"Base worker":"Engine worker"}</p><p className="mt-1 text-[10px] text-muted-foreground">{row.repo} · {row.ref}</p></div><StatusPill text={row.run?(row.run.conclusion||row.run.status||"queued"):"idle"}/></div>{row.run?.html_url&&<a className="mt-3 inline-flex text-[10px] font-medium text-primary" href={row.run.html_url} target="_blank" rel="noreferrer">Open run #{row.run.id} →</a>}</div>)}</div></section>
+    </div>
+    <ActivityPage releases={releases} run={run}/>
+  </section>;
+}
+
+
+function RepositoriesPage({data,session,onBase,onEngine}:any) {
+  const [rows,setRows]=useState<any[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const loadRepos=async()=>{setLoading(true);setError("");try{const r=await getRepositoryStatus({data:{token:session.token}});setRows(r.repositories||[])}catch(x:any){setError(x.message||"Unable to load repository status.")}finally{setLoading(false)}};
+  useEffect(()=>{void loadRepos()},[session.token]);
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Repositories" detail="Live source refs and the latest release-builder workflow for the two allowed release repositories."/><button className="button-secondary" onClick={loadRepos} disabled={loading}><RefreshCw size={14} className={loading?"animate-spin":""}/> Refresh</button></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}
+    <div className="grid gap-4 lg:grid-cols-2">{rows.map((row:any)=><section key={row.key} className="release-surface overflow-hidden"><div className="flex items-start justify-between border-b p-4"><SectionHead icon={row.key==="base"?Rocket:Layers3} title={row.key==="base"?"OrbitFS Base":"OrbitFS Engine"} detail={row.repo}/><StatusPill text={row.head?"connected":"unavailable"}/></div><div className="space-y-2 p-4"><StatusRow label="Release ref" value={row.ref}/><StatusRow label="Current SHA" value={row.head?String(row.head).slice(0,12):"Unavailable"}/><StatusRow label="Workflow" value={row.workflow}/><StatusRow label="Latest run" value={row.run?"#"+row.run.id+" · "+(row.run.conclusion||row.run.status):"No run found"}/></div><div className="flex flex-wrap gap-2 border-t p-4">{row.run?.html_url&&<a className="button-secondary" href={row.run.html_url} target="_blank" rel="noreferrer"><Github size={14}/> Open latest run</a>}<button className="button-primary" onClick={row.key==="base"?onBase:onEngine}><Rocket size={14}/> Prepare release</button></div></section>)}{!loading&&!rows.length&&<div className="release-surface p-8 text-center text-xs text-muted-foreground">No repository state returned.</div>}</div>
+  </section>;
+}
+
+
+function RepositoryCard({title,repo,refName,workflow,icon:Icon,onCreate}:any) {
+  return <section className="release-surface overflow-hidden"><div className="flex items-start justify-between border-b p-4"><SectionHead icon={Icon} title={title} detail={repo||"Repository unavailable"}/><span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[9px] text-emerald-300">CONNECTED</span></div><div className="space-y-2 p-4"><StatusRow label="Repository" value={repo||"—"}/><StatusRow label="Release ref" value={refName||"—"}/><StatusRow label="Workflow" value={workflow||"—"}/></div><div className="border-t p-4"><button className="button-primary" onClick={onCreate}><Rocket size={14}/> Prepare release</button></div></section>;
+}
+
+function ChannelsPage({channels,data,session}:any) {
+  const [state,setState]=useState<any>({channels:[],requests:[],access:[]});
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const [editing,setEditing]=useState<any>(null);
+  const loadChannels=async()=>{setLoading(true);setError("");try{setState(await getChannelsState({data:{token:session.token}}))}catch(x:any){setError(x.message||"Unable to load channels.")}finally{setLoading(false)}};
+  useEffect(()=>{void loadChannels()},[session.token]);
+  const edit=(row:any)=>setEditing({channel:row.channel,label:row.label||row.channel,description:row.description||"",enabled:row.enabled!==false,customerVisible:row.customer_visible!==false,accessMode:row.access_mode||"assigned",accessRequestEnabled:Boolean(row.access_request_enabled),selfJoinEnabled:Boolean(row.self_join_enabled),sortOrder:Number(row.sort_order||0)});
+  const save=async(e:any)=>{e.preventDefault();setError("");setNotice("");try{await saveReleaseChannel({data:{token:session.token,...editing}});setEditing(null);setNotice("Channel settings saved to License Master.");await loadChannels()}catch(x:any){setError(x.message||"Unable to save channel.")}};
+  const review=async(req:any,action:"grant"|"reject")=>{setError("");setNotice("");try{await reviewChannelAccess({data:{token:session.token,action,licenseId:req.license_id,channel:req.channel}});setNotice(action==="grant"?"Channel access approved.":"Channel access rejected.");await loadChannels()}catch(x:any){setError(x.message||"Unable to review access request.")}};
+  const rows=state.channels.length?state.channels:channels.map((x:string)=>({channel:x,label:x,enabled:true,customer_visible:true,access_mode:"assigned"}));
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Channels" detail="License Master channel policy, self-service access, and pending customer access requests."/><button className="button-secondary" onClick={loadChannels} disabled={loading}><RefreshCw size={14} className={loading?"animate-spin":""}/> Refresh</button></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}{notice&&<Alert tone="success" onClose={()=>setNotice("")}>{notice}</Alert>}
+    {editing&&<form onSubmit={save} className="release-surface p-4"><SectionHead icon={Settings2} title={"Edit "+editing.channel} detail="These settings are authoritative in License Master and determine customer portal behaviour."/><div className="mt-4 grid gap-3 md:grid-cols-2"><Field label="Label"><input className="control" value={editing.label} onChange={e=>setEditing({...editing,label:e.target.value})}/></Field><Field label="Access mode"><select className="control" value={editing.accessMode} onChange={e=>setEditing({...editing,accessMode:e.target.value})}><option value="open">Open</option><option value="assigned">Assigned</option><option value="request">Request</option><option value="closed">Closed</option></select></Field><Field label="Description"><input className="control" value={editing.description} onChange={e=>setEditing({...editing,description:e.target.value})}/></Field><Field label="Sort order"><input className="control" type="number" value={editing.sortOrder} onChange={e=>setEditing({...editing,sortOrder:Number(e.target.value)})}/></Field></div><div className="mt-4 grid gap-2 sm:grid-cols-3"><label className="flex items-center gap-2 rounded-lg border p-3 text-xs"><input type="checkbox" checked={editing.enabled} onChange={e=>setEditing({...editing,enabled:e.target.checked})}/> Enabled</label><label className="flex items-center gap-2 rounded-lg border p-3 text-xs"><input type="checkbox" checked={editing.customerVisible} onChange={e=>setEditing({...editing,customerVisible:e.target.checked})}/> Customer visible</label><label className="flex items-center gap-2 rounded-lg border p-3 text-xs"><input type="checkbox" checked={editing.selfJoinEnabled} onChange={e=>setEditing({...editing,selfJoinEnabled:e.target.checked})}/> Self join</label><label className="flex items-center gap-2 rounded-lg border p-3 text-xs"><input type="checkbox" checked={editing.accessRequestEnabled} onChange={e=>setEditing({...editing,accessRequestEnabled:e.target.checked})}/> Access requests</label></div><div className="mt-4 flex justify-end gap-2"><button type="button" className="button-secondary" onClick={()=>setEditing(null)}>Cancel</button><button className="button-primary">Save channel</button></div></form>}
+    <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={Server} title="Release channels" detail={loading?"Loading authoritative policy…":String(rows.length)+" channels"}/></div><div>{rows.map((row:any)=><div key={row.channel} className="grid gap-3 border-b p-4 last:border-b-0 md:grid-cols-[1fr_100px_120px_auto] md:items-center"><div><div className="flex items-center gap-2"><p className="text-sm font-semibold">{row.label||row.channel}</p><code className="text-[10px] text-muted-foreground">{row.channel}</code></div><p className="mt-1 text-[10px] text-muted-foreground">{row.description||"No description"}</p></div><StatusPill text={row.enabled?"enabled":"disabled"}/><StatusPill text={row.access_mode||"assigned"}/><button className="button-secondary" onClick={()=>edit(row)}>Configure</button></div>)}</div></section>
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={ScrollText} title="Access requests" detail="Pending requests can be approved or rejected here; License Master remains authoritative."/></div><div>{state.requests.filter((x:any)=>x.status==="pending").map((req:any)=><div key={req.id||req.license_id+req.channel} className="border-b p-4 last:border-b-0"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{req.channel}</p><p className="mt-1 text-[10px] text-muted-foreground">License {req.license_id}</p></div><StatusPill text={req.status}/></div><div className="mt-3 flex gap-2"><button className="button-primary" onClick={()=>review(req,"grant")}>Approve</button><button className="button-secondary" onClick={()=>review(req,"reject")}>Reject</button></div></div>)}{!loading&&!state.requests.some((x:any)=>x.status==="pending")&&<div className="p-8 text-center text-xs text-muted-foreground">No pending channel access requests.</div>}</div></section>
+    </div>
+    <section className="release-surface p-4"><SectionHead icon={Globe2} title="Customer Portal behaviour" detail="Open channels show Join channel. Request-enabled channels show Request access. Closed/assigned channels expose no self-service join action."/><div className="mt-4 grid gap-2 sm:grid-cols-3"><PipelineStep icon={CheckCircle2} title="Open" text="Customer can join directly."/><PipelineStep icon={ScrollText} title="Request" text="Customer submits an access request."/><PipelineStep icon={ShieldCheck} title="Assigned / closed" text="Access is granted by an administrator only."/></div></section>
+  </section>;
+}
+
+
+function CustomerPortalPage({releases,channels,session}:any) {
+  const [state,setState]=useState<any>({releases,published:releases.filter((r:any)=>r.status==="published"),channels:[],portalUrl:""});
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const loadPortal=async()=>{setLoading(true);setError("");try{setState(await getPortalMonitor({data:{token:session.token}}))}catch(x:any){setError(x.message||"Unable to load portal monitor.")}finally{setLoading(false)}};
+  useEffect(()=>{void loadPortal()},[session.token]);
+  const published=state.published||[];
+  const all=state.releases||[];
+  const rolledBack=all.filter((r:any)=>Boolean(r.manifest?.rollback_from)||String(r.status||"").toLowerCase().includes("rollback"));
+  const unpublished=all.filter((r:any)=>r.status==="disabled"&&!r.archived_at);
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Customer Portal Status" detail="Monitor authoritative release visibility and channel access without turning Dev Panel into the publication system."/><div className="flex gap-2"><button className="button-secondary" onClick={loadPortal} disabled={loading}><RefreshCw size={14} className={loading?"animate-spin":""}/> Refresh</button>{state.portalUrl&&<a className="button-primary" href={state.portalUrl+"/portal/orbitfs/releases"} target="_blank" rel="noreferrer"><Globe2 size={14}/> Open portal</a>}</div></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Published" value={published.length} detail="Customer-visible release state"/><Metric label="Unpublished" value={unpublished.length} detail="Withdrawn from customer visibility"/><Metric label="Rollback history" value={rolledBack.length} detail="Rollback-derived release state"/><Metric label="Channels" value={(state.channels||[]).filter((x:any)=>x.enabled).length} detail="Enabled release channels"/></div>
+    <div className="grid gap-4 xl:grid-cols-[1.35fr_.65fr]">
+      <section className="release-surface overflow-hidden"><div className="flex items-center justify-between border-b p-4"><SectionHead icon={Globe2} title="Customer-visible releases" detail="Only License Master releases currently marked published are treated as visible."/><span className="text-[10px] text-muted-foreground">Billing Store owns final Update publication</span></div><ReleaseTable releases={published}/></section>
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={Server} title="Portal channel actions" detail="Expected customer action from each authoritative channel policy."/></div><div>{(state.channels||[]).filter((x:any)=>x.enabled&&x.customer_visible).map((ch:any)=><div key={ch.channel} className="border-b p-4 last:border-b-0"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold">{ch.label||ch.channel}</p><StatusPill text={ch.access_mode||"assigned"}/></div><p className="mt-2 text-[10px] text-muted-foreground">{ch.access_mode==="open"||ch.self_join_enabled?"Portal action: Join channel":ch.access_request_enabled?"Portal action: Request access":"Portal action: assigned by administrator"}</p></div>)}{!loading&&!(state.channels||[]).some((x:any)=>x.enabled&&x.customer_visible)&&<div className="p-8 text-center text-xs text-muted-foreground">No customer-visible channels are enabled.</div>}</div></section>
+    </div>
+    <section className="release-surface p-4"><SectionHead icon={ShieldCheck} title="Publication boundary" detail="This page reads downstream state only."/><p className="mt-3 text-xs leading-6 text-muted-foreground">Dev Panel prepares and controls technical release state through License Master. It does not publish Update releases from this page. If Billing Store unpublishes an Update or License Master rolls a Base release back, the next refresh stops reporting that release as published.</p></section>
+  </section>;
+}
+
+
+function AuditPage({releases,run,session}:any) {
+  const [events,setEvents]=useState<any[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const loadAudit=async()=>{setLoading(true);setError("");try{const r=await getAuditState({data:{token:session.token,limit:150}});setEvents(r.events||[])}catch(x:any){setError(x.message||"Unable to load audit history.")}finally{setLoading(false)}};
+  useEffect(()=>{void loadAudit()},[session.token]);
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Audit & History" detail="License Master technical audit history plus Dev Panel workflow context."/><button className="button-secondary" onClick={loadAudit} disabled={loading}><RefreshCw size={14} className={loading?"animate-spin":""}/> Refresh</button></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}
+    <div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={History} title="Authoritative audit events" detail={loading?"Loading…":String(events.length)+" recent License Master events"}/></div><div className="max-h-[680px] overflow-auto">{events.map((ev:any)=><div key={ev.id} className="grid gap-2 border-b p-4 last:border-b-0 md:grid-cols-[160px_1fr_130px] md:items-start"><div><p className="text-[10px] text-muted-foreground">{ev.created_at?new Date(ev.created_at).toLocaleString():"—"}</p><p className="mt-1 text-[10px] font-medium">{ev.actor||"system"}</p></div><div className="min-w-0"><p className="text-xs font-semibold">{ev.action}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{ev.resource_type||"resource"} · {ev.resource_id||"—"}</p>{ev.details&&<code className="mt-2 block max-h-20 overflow-auto whitespace-pre-wrap text-[9px] text-muted-foreground">{JSON.stringify(ev.details,null,2)}</code>}</div><StatusPill text={ev.resource_type||"event"}/></div>)}{!loading&&!events.length&&<div className="p-10 text-center text-xs text-muted-foreground">No audit events returned.</div>}</div></section>
+      <div className="space-y-4"><section className="release-surface p-4"><SectionHead icon={Activity} title="Current workflow" detail="Latest monitored GitHub workflow context."/><div className="mt-4 space-y-2"><StatusRow label="Run" value={run?.id?"#"+run.id:"None"}/><StatusRow label="Status" value={run?(run.conclusion||run.status||"queued"):"Idle"}/><StatusRow label="Jobs" value={String(run?.jobs?.length||0)}/></div></section><section className="release-surface p-4"><SectionHead icon={PackageCheck} title="Release records" detail="Recent License Master release lifecycle state."/><div className="mt-3 space-y-2">{releases.slice(0,8).map((r:any)=><div key={r.id} className="flex items-center justify-between gap-3 border-b py-2 last:border-b-0"><div><p className="text-xs font-medium">v{r.version}</p><p className="text-[9px] text-muted-foreground">{r.release_type} · {r.channel}</p></div><StatusPill text={r.status||"draft"}/></div>)}</div></section></div>
+    </div>
+  </section>;
+}
+
+
+function AccessPage({session}:any) {
+  const [state,setState]=useState<any>({users:[],groups:[],memberships:[],permissions:[],ownerOnly:false});
+  const [loading,setLoading]=useState(true);
+  const [message,setMessage]=useState("");
+  const [accessError,setAccessError]=useState("");
+  const [showUserForm,setShowUserForm]=useState(false);
+  const [showGroupForm,setShowGroupForm]=useState(false);
+  const [editingGroup,setEditingGroup]=useState<any>(null);
+  const [userForm,setUserForm]=useState({email:"",displayName:"",role:"admin",password:"",groupIds:[] as string[]});
+  const [groupForm,setGroupForm]=useState({name:"",description:"",permissions:[] as string[]});
+  const owner=String(session?.role||"").toLowerCase()==="owner";
+
+  const loadAccess=async()=>{setLoading(true);setAccessError("");try{setState(await getAccessState({data:{token:session.token}}))}catch(x:any){setAccessError(x.message||"Unable to load users and access groups.")}finally{setLoading(false)}};
+  useEffect(()=>{void loadAccess()},[session?.token]);
+  const groupsFor=(userId:string)=>state.memberships.filter((m:any)=>m.user_id===userId).map((m:any)=>m.group_id);
+
+  const createUser=async(e:any)=>{e.preventDefault();setAccessError("");setMessage("");try{await createPanelUser({data:{token:session.token,email:userForm.email,displayName:userForm.displayName,role:userForm.role as "owner"|"admin",password:userForm.password,groupIds:userForm.groupIds}});setUserForm({email:"",displayName:"",role:"admin",password:"",groupIds:[]});setShowUserForm(false);setMessage("User created.");await loadAccess()}catch(x:any){setAccessError(x.message||"Unable to create user.")}};
+  const saveGroup=async(e:any)=>{e.preventDefault();setAccessError("");setMessage("");try{if(editingGroup){await updateAccessGroup({data:{token:session.token,groupId:editingGroup.id,name:groupForm.name,description:groupForm.description,permissions:groupForm.permissions}});setMessage("Group updated.")}else{await createAccessGroup({data:{token:session.token,name:groupForm.name,description:groupForm.description,permissions:groupForm.permissions}});setMessage("Group created.")}setGroupForm({name:"",description:"",permissions:[]});setShowGroupForm(false);setEditingGroup(null);await loadAccess()}catch(x:any){setAccessError(x.message||"Unable to save group.")}};
+  const toggleUser=async(user:any)=>{setAccessError("");try{await updatePanelUser({data:{token:session.token,userId:user.id,status:user.status==="active"?"disabled":"active"}});await loadAccess()}catch(x:any){setAccessError(x.message||"Unable to update user.")}};
+  const setRole=async(user:any,role:"owner"|"admin")=>{setAccessError("");try{await updatePanelUser({data:{token:session.token,userId:user.id,role}});await loadAccess()}catch(x:any){setAccessError(x.message||"Unable to update role.")}};
+  const toggleMembership=async(user:any,groupId:string)=>{setAccessError("");const current=groupsFor(user.id);const next=current.includes(groupId)?current.filter((x:string)=>x!==groupId):[...current,groupId];try{await updatePanelUser({data:{token:session.token,userId:user.id,groupIds:next}});await loadAccess()}catch(x:any){setAccessError(x.message||"Unable to update group membership.")}};
+  const startGroup=(g?:any)=>{if(g){setEditingGroup(g);setGroupForm({name:g.name,description:g.description||"",permissions:Array.isArray(g.permissions)?g.permissions:[]})}else{setEditingGroup(null);setGroupForm({name:"",description:"",permissions:[]})}setShowGroupForm(true)};
+
+  if(!owner)return <section className="space-y-4"><PageHead title="Users & Access" detail="Owner-only access management."/><section className="release-surface p-5"><SectionHead icon={KeyRound} title="Owner access required" detail="Admins can operate release workflows but cannot change users, groups or permissions."/></section></section>;
+
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Users & Access" detail="Private Dev Panel access with only Owner and Admin roles. Groups provide optional operational permission bundles."/><div className="flex gap-2"><button className="button-secondary" onClick={()=>startGroup()}><UserCog size={14}/> New group</button><button className="button-primary" onClick={()=>setShowUserForm(!showUserForm)}><UserPlus size={14}/> Add user</button></div></div>
+    {accessError&&<Alert tone="error" onClose={()=>setAccessError("")}>{accessError}</Alert>}{message&&<Alert tone="success" onClose={()=>setMessage("")}>{message}</Alert>}
+    {showUserForm&&<form onSubmit={createUser} className="release-surface p-4"><SectionHead icon={UserPlus} title="Add user" detail="Create a private account. No public registration is available."/><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Display name"><input className="control" value={userForm.displayName} onChange={e=>setUserForm({...userForm,displayName:e.target.value})} required/></Field><Field label="Email"><input className="control" type="email" value={userForm.email} onChange={e=>setUserForm({...userForm,email:e.target.value})} required/></Field><Field label="Role"><select className="control" value={userForm.role} onChange={e=>setUserForm({...userForm,role:e.target.value})}><option value="admin">Admin</option><option value="owner">Owner</option></select></Field><Field label="Temporary password"><input className="control" type="password" minLength={10} value={userForm.password} onChange={e=>setUserForm({...userForm,password:e.target.value})} required/></Field></div>{state.groups.length>0&&<div className="mt-4"><p className="text-xs font-medium">Groups</p><div className="mt-2 flex flex-wrap gap-2">{state.groups.map((g:any)=><label key={g.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px]"><input type="checkbox" checked={userForm.groupIds.includes(g.id)} onChange={()=>setUserForm({...userForm,groupIds:userForm.groupIds.includes(g.id)?userForm.groupIds.filter(x=>x!==g.id):[...userForm.groupIds,g.id]})}/>{g.name}</label>)}</div></div>}<div className="mt-4 flex justify-end gap-2"><button type="button" className="button-secondary" onClick={()=>setShowUserForm(false)}>Cancel</button><button className="button-primary">Create user</button></div></form>}
+    {showGroupForm&&<form onSubmit={saveGroup} className="release-surface p-4"><SectionHead icon={Users} title={editingGroup?"Edit group":"New access group"} detail="Group permissions are for Dev Panel operations only; they do not change License Master authority."/><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Group name"><input className="control" value={groupForm.name} onChange={e=>setGroupForm({...groupForm,name:e.target.value})} required/></Field><Field label="Description"><input className="control" value={groupForm.description} onChange={e=>setGroupForm({...groupForm,description:e.target.value})}/></Field></div><div className="mt-4 grid gap-2 sm:grid-cols-3">{state.permissions.map((perm:string)=><label key={perm} className="flex items-center gap-2 rounded-lg border bg-background/40 p-2 text-[11px]"><input type="checkbox" checked={groupForm.permissions.includes(perm)} onChange={()=>setGroupForm({...groupForm,permissions:groupForm.permissions.includes(perm)?groupForm.permissions.filter(x=>x!==perm):[...groupForm.permissions,perm]})}/><code>{perm}</code></label>)}</div><div className="mt-4 flex justify-end gap-2"><button type="button" className="button-secondary" onClick={()=>{setShowGroupForm(false);setEditingGroup(null)}}>Cancel</button><button className="button-primary">{editingGroup?"Save group":"Create group"}</button></div></form>}
+    <div className="grid gap-4 xl:grid-cols-[1.4fr_.8fr]">
+      <section className="release-surface overflow-hidden"><div className="flex items-center justify-between border-b p-4"><SectionHead icon={Users} title="Users" detail={loading?"Loading…":String(state.users.length)+" private accounts"}/><span className="text-[10px] text-muted-foreground">Owner / Admin only</span></div><div>{state.users.map((u:any)=><div key={u.id} className="border-b p-4 last:border-b-0"><div className="grid gap-3 md:grid-cols-[1fr_120px_110px_auto] md:items-center"><div><p className="text-sm font-medium">{u.display_name}</p><p className="mt-1 text-[10px] text-muted-foreground">{u.email} · last login {u.last_login_at?new Date(u.last_login_at).toLocaleString():"never"}</p></div><select className="control mt-0" value={u.role} onChange={e=>setRole(u,e.target.value as any)}><option value="admin">Admin</option><option value="owner">Owner</option></select><StatusPill text={u.status}/><button className="button-secondary" onClick={()=>toggleUser(u)}>{u.status==="active"?"Disable":"Enable"}</button></div>{state.groups.length>0&&<div className="mt-3 flex flex-wrap gap-2">{state.groups.map((g:any)=><label key={g.id} className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px]"><input type="checkbox" checked={groupsFor(u.id).includes(g.id)} onChange={()=>toggleMembership(u,g.id)}/>{g.name}</label>)}</div>}</div>)}{!loading&&!state.users.length&&<div className="p-8 text-center text-xs text-muted-foreground">No users returned.</div>}</div></section>
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={UserCog} title="Groups" detail="Optional permission bundles for this private panel."/></div><div>{state.groups.map((g:any)=><button key={g.id} type="button" onClick={()=>startGroup(g)} className="block w-full border-b p-4 text-left last:border-b-0 hover:bg-muted/20"><div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{g.name}</p><StatusPill text={String(Array.isArray(g.permissions)?g.permissions.length:0)+" permissions"}/></div><p className="mt-1 text-[10px] text-muted-foreground">{g.description||"No description"}</p><div className="mt-3 flex flex-wrap gap-1">{(g.permissions||[]).map((perm:string)=><code key={perm} className="rounded bg-muted px-1.5 py-1 text-[9px]">{perm}</code>)}</div></button>)}{!loading&&!state.groups.length&&<div className="p-8 text-center text-xs text-muted-foreground">No groups yet.</div>}</div></section>
+    </div>
+  </section>;
+}
+
 
 function SettingsPage({ data, connected }: any) {
   const base = data.base?.repositories?.base;
