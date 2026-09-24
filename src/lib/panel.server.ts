@@ -340,14 +340,16 @@ export const getControlState=createServerFn({method:"POST"}).handler(async({data
  };
 });
 
-export const controlRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;releaseId:string;action:"approve"|"reject"|"rollback"|"withdraw"|"archive"|"restore";reason?:string}})=>{
+export const controlRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;releaseId:string;action:"approve"|"reject"|"rollback"|"revert"|"withdraw"|"archive"|"restore";reason?:string}})=>{
  const actor=readSession(data.token);
  if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
  const id=String(data.releaseId||"").trim();
  if(!id)throw new Error("Release ID is required");
  const action=String(data.action||"").trim().toLowerCase();
- if(!["approve","reject","rollback","withdraw","archive","restore"].includes(action))throw new Error("Unsupported release action");
- const result=await licenseMaster(`/releases/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify({action,reason:data.reason||undefined})});
+ if(!["approve","reject","rollback","revert","withdraw","archive","restore"].includes(action))throw new Error("Unsupported release action");
+ const reason=String(data.reason||"").trim();
+ if(["rollback","revert","archive"].includes(action)&&!reason)throw new Error("A reason is required so this lifecycle change remains auditable.");
+ const result=await licenseMaster(`/releases/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify({action,reason:reason||undefined})});
  return result;
 });
 
