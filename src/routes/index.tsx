@@ -220,7 +220,8 @@ function Index() {
   return (
     <div className="min-h-screen bg-background">
       <Header connected={masterConnected} loading={loading} onRefresh={() => load()} onSignOut={signOut} user={session} />
-      <div className="mx-auto flex min-h-[calc(100vh-57px)] max-w-[1680px]">
+      <MobileNav tab={tab} setTab={setTab} activeRun={!!run && !run.conclusion} />
+      <div className="mx-auto flex min-h-[calc(100vh-66px)] max-w-[1680px]">
         <Sidebar tab={tab} setTab={setTab} activeRun={!!run && !run.conclusion} />
         <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 xl:px-8">
           <div className="mx-auto max-w-[1440px] space-y-4">
@@ -305,6 +306,26 @@ function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
   </header>;
 }
 
+function MobileNav({ tab, setTab, activeRun }: any) {
+  const items = [
+    ["overview","Overview",Gauge],
+    ["base","Base",Rocket],
+    ["engine","Updates",Layers3],
+    ["releases","Releases",PackageCheck],
+    ["activity","Runs",Activity],
+    ["channels","Channels",Server],
+    ["portal","Portal",Globe2],
+    ["settings","Config",Settings2],
+  ] as const;
+  return <div className="orbit-mobile-nav lg:hidden">
+    <div className="orbit-mobile-nav-track">
+      {items.map(([id,label,Icon])=><button key={id} onClick={()=>setTab(id as Tab)} className={`orbit-mobile-nav-item ${tab===id?"is-active":""}`}>
+        <Icon size={15}/><span>{label}</span>{id==="activity"&&activeRun&&<i/>}
+      </button>)}
+    </div>
+  </div>;
+}
+
 function Sidebar({ tab, setTab, activeRun }: any) {
   const items = [
     ["overview", "Dashboard", "Release control overview", Gauge],
@@ -358,13 +379,13 @@ function Dashboard({ stats, releases, connected, run, channels, onBase, onEngine
   const healthy = releases.filter((r:any)=>r.manifest?.validation?.status!=="failed").length;
   const health = releases.length ? Math.round((healthy/releases.length)*100) : 100;
   return <section className="space-y-5">
-    <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
+    <div className="orbit-dashboard-hero">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-primary">Release workspace</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Ship what’s next.</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Create, manage, and monitor OrbitFS releases while keeping License Master as the technical authority.</p>
+        <div className="orbit-dashboard-kicker"><span className={connected?"is-online":"is-offline"}></span> OrbitFS release operations</div>
+        <h1>Release control</h1>
+        <p>Prepare Base and Update releases, watch validation state, and hand approved technical releases forward without crossing system authority boundaries.</p>
       </div>
-      <div className="flex gap-2"><button className="button-secondary" onClick={onReleases}>All releases</button><button className="button-primary" onClick={onEngine}><Rocket size={15}/> New release</button></div>
+      <div className="orbit-dashboard-actions"><button className="button-secondary" onClick={onReleases}>Browse releases</button><button className="button-primary" onClick={onEngine}><Rocket size={15}/> Create update</button></div>
     </div>
 
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -410,7 +431,7 @@ function Dashboard({ stats, releases, connected, run, channels, onBase, onEngine
 }
 
 function Metric({ label, value, detail }: any) {
-  return <div className="border-r bg-card p-4 last:border-r-0"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p><p className="mt-1 text-[11px] text-muted-foreground">{detail}</p></div>;
+  return <div className="orbit-metric"><div className="orbit-metric-label">{label}</div><div className="orbit-metric-value">{value}</div><div className="orbit-metric-detail">{detail}</div></div>;
 }
 
 function PipelineStep({ icon: Icon, title, text }: any) {
