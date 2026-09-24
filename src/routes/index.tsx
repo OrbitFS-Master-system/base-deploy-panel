@@ -288,7 +288,7 @@ function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
   return <header className="orbit-topbar sticky top-0 z-30 border-b lg:ml-0">
     <div className="flex h-[66px] items-center justify-between gap-3 px-4 sm:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="lg:hidden orbit-logo scale-90"><span></span></div>
+        <div className="md:hidden orbit-logo scale-90"><span></span></div>
         <div className="orbit-search hidden max-w-[560px] flex-1 items-center gap-2 md:flex">
           <Search size={15}/><span className="text-xs text-muted-foreground">Search repositories, releases, or commits...</span><kbd>/</kbd>
         </div>
@@ -317,7 +317,7 @@ function MobileNav({ tab, setTab, activeRun }: any) {
     ["portal","Portal",Globe2],
     ["settings","Config",Settings2],
   ] as const;
-  return <div className="orbit-mobile-nav lg:hidden">
+  return <div className="orbit-mobile-nav md:hidden">
     <div className="orbit-mobile-nav-track">
       {items.map(([id,label,Icon])=><button key={id} onClick={()=>setTab(id as Tab)} className={`orbit-mobile-nav-item ${tab===id?"is-active":""}`}>
         <Icon size={15}/><span>{label}</span>{id==="activity"&&activeRun&&<i/>}
@@ -341,7 +341,7 @@ function Sidebar({ tab, setTab, activeRun }: any) {
     ["access", "Users & Access", "Owner-managed access", Users],
     ["settings", "Configuration", "Runtime configuration", Settings2],
   ] as const;
-  return <aside className="orbit-sidebar hidden w-[230px] shrink-0 lg:block">
+  return <aside className="orbit-sidebar hidden w-[230px] shrink-0 md:block">
     <div className="sticky top-0 flex h-screen flex-col px-3 py-5">
       <div className="mb-7 flex items-center gap-3 px-2">
         <div className="orbit-logo"><span></span></div>
