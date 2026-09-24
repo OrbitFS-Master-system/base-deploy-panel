@@ -10,7 +10,9 @@ import {
 import {
   getPanelState, inspectSource, startRelease, getReleaseRun,
   getReleaseHandoff, login, getAccessState, createPanelUser,
-  updatePanelUser, createAccessGroup, updateAccessGroup
+  updatePanelUser, createAccessGroup, updateAccessGroup, getControlState,
+  controlRelease, getChannelsState, saveReleaseChannel, reviewChannelAccess,
+  getAuditState, getRepositoryStatus, getPortalMonitor
 } from "@/lib/panel.server";
 
 export const Route = createFileRoute("/")({ component: Index });
@@ -226,23 +228,23 @@ function Index() {
             {tab === "overview" && <Dashboard stats={stats} releases={allReleases} connected={masterConnected} run={run} channels={availableChannels}
               onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }}
               onActivity={() => setTab("activity")} onReleases={() => setTab("releases")} />}
-            {tab === "releases" && <ReleasesPage releases={allReleases} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
-            {tab === "base" && <Composer type="base" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
+            {tab === "releases" && <ReleasesPage releases={allReleases} session={session} onChanged={()=>load(session,true)} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
+            {tab === "base" && <Composer type="base" releases={data.base.releases||[]} session={session} {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("base")} onStart={() => start("base")}
               run={runRepo === "lucaskerim123/V1-vercel-base" ? run : null} runRepo={runRepo} handoff={handoff} connected={masterConnected} />}
-            {tab === "engine" && <Composer type="engine" {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
+            {tab === "engine" && <Composer type="engine" releases={data.engine.releases||[]} session={session} {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("engine")} onStart={() => start("engine")}
               run={runRepo === "lucaskerim123/V1-vercel-engine" ? run : null} runRepo={runRepo} handoff={handoff} connected={masterConnected} />}
-            {tab === "activity" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} />}
-            {tab === "repositories" && <RepositoriesPage data={data} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
-            {tab === "channels" && <ChannelsPage channels={availableChannels} data={data} />}
-            {tab === "portal" && <CustomerPortalPage releases={allReleases} channels={availableChannels} />}
+            {tab === "activity" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} session={session} />}
+            {tab === "repositories" && <RepositoriesPage data={data} session={session} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
+            {tab === "channels" && <ChannelsPage channels={availableChannels} data={data} session={session} />}
+            {tab === "portal" && <CustomerPortalPage releases={allReleases} channels={availableChannels} session={session} />}
             {tab === "monitoring" && <SystemMonitoringPage releases={allReleases} connected={masterConnected} run={run} />}
-            {tab === "audit" && <AuditPage releases={allReleases} run={run} />}
+            {tab === "audit" && <AuditPage releases={allReleases} run={run} session={session} />}
             {tab === "access" && <AccessPage session={session} />}
             {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
           </div>
