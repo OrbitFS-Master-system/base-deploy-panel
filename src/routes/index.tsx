@@ -832,14 +832,22 @@ function CustomerPortalPage({releases,channels,session}:any) {
 }
 
 
-function AuditPage({releases,run}:any) {
-  return <section className="space-y-4"><PageHead title="Audit & History" detail="Operational history from the release records currently visible to the Dev Panel."/>
-    <div className="grid gap-4 xl:grid-cols-[1fr_330px]">
-      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={History} title="Release history" detail="Recent release state, validation and approval history."/></div><ReleaseTable releases={releases.slice(0,20)}/></section>
-      <section className="release-surface p-4"><SectionHead icon={Activity} title="Current workflow" detail="Latest monitored GitHub workflow context."/><div className="mt-4 space-y-2"><StatusRow label="Run" value={run?.id?`#${run.id}`:"None"}/><StatusRow label="Status" value={run?(run.conclusion||run.status||"queued"):"Idle"}/><StatusRow label="Jobs" value={String(run?.jobs?.length||0)}/></div><p className="mt-4 text-[10px] leading-5 text-muted-foreground">License Master remains the authoritative source for technical release audit history. This view will surface that API data as it becomes available.</p></section>
+function AuditPage({releases,run,session}:any) {
+  const [events,setEvents]=useState<any[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const loadAudit=async()=>{setLoading(true);setError("");try{const r=await getAuditState({data:{token:session.token,limit:150}});setEvents(r.events||[])}catch(x:any){setError(x.message||"Unable to load audit history.")}finally{setLoading(false)}};
+  useEffect(()=>{void loadAudit()},[session.token]);
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Audit & History" detail="License Master technical audit history plus Dev Panel workflow context."/><button className="button-secondary" onClick={loadAudit} disabled={loading}><RefreshCw size={14} className={loading?"animate-spin":""}/> Refresh</button></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}
+    <div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
+      <section className="release-surface overflow-hidden"><div className="border-b p-4"><SectionHead icon={History} title="Authoritative audit events" detail={loading?"Loading…":String(events.length)+" recent License Master events"}/></div><div className="max-h-[680px] overflow-auto">{events.map((ev:any)=><div key={ev.id} className="grid gap-2 border-b p-4 last:border-b-0 md:grid-cols-[160px_1fr_130px] md:items-start"><div><p className="text-[10px] text-muted-foreground">{ev.created_at?new Date(ev.created_at).toLocaleString():"—"}</p><p className="mt-1 text-[10px] font-medium">{ev.actor||"system"}</p></div><div className="min-w-0"><p className="text-xs font-semibold">{ev.action}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{ev.resource_type||"resource"} · {ev.resource_id||"—"}</p>{ev.details&&<code className="mt-2 block max-h-20 overflow-auto whitespace-pre-wrap text-[9px] text-muted-foreground">{JSON.stringify(ev.details,null,2)}</code>}</div><StatusPill text={ev.resource_type||"event"}/></div>)}{!loading&&!events.length&&<div className="p-10 text-center text-xs text-muted-foreground">No audit events returned.</div>}</div></section>
+      <div className="space-y-4"><section className="release-surface p-4"><SectionHead icon={Activity} title="Current workflow" detail="Latest monitored GitHub workflow context."/><div className="mt-4 space-y-2"><StatusRow label="Run" value={run?.id?"#"+run.id:"None"}/><StatusRow label="Status" value={run?(run.conclusion||run.status||"queued"):"Idle"}/><StatusRow label="Jobs" value={String(run?.jobs?.length||0)}/></div></section><section className="release-surface p-4"><SectionHead icon={PackageCheck} title="Release records" detail="Recent License Master release lifecycle state."/><div className="mt-3 space-y-2">{releases.slice(0,8).map((r:any)=><div key={r.id} className="flex items-center justify-between gap-3 border-b py-2 last:border-b-0"><div><p className="text-xs font-medium">v{r.version}</p><p className="text-[9px] text-muted-foreground">{r.release_type} · {r.channel}</p></div><StatusPill text={r.status||"draft"}/></div>)}</div></section></div>
     </div>
   </section>;
 }
+
 
 function AccessPage({session}:any) {
   const [state,setState]=useState<any>({users:[],groups:[],memberships:[],permissions:[],ownerOnly:false});
