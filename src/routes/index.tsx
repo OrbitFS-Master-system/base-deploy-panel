@@ -748,15 +748,48 @@ function ReleaseSummaryRow({release:r}:any) {
   </div>;
 }
 
-function ReleasesPage({releases,onBase,onEngine}:any) {
+function ReleasesPage({releases,session,onChanged,onBase,onEngine}:any) {
+  const [type,setType]=useState("all");
+  const [state,setState]=useState("all");
+  const [channel,setChannelFilter]=useState("all");
+  const [query,setQuery]=useState("");
+  const [busy,setBusy]=useState("");
+  const [message,setMessage]=useState("");
+  const [error,setError]=useState("");
+  const channels=Array.from(new Set(releases.map((r:any)=>String(r.channel||"stable"))));
+  const filtered=releases.filter((r:any)=>{
+    if(type!=="all"&&String(r.release_type)!==type)return false;
+    if(state!=="all"){
+      const s=r.archived_at?"archived":String(r.status||"draft");
+      if(s!==state)return false;
+    }
+    if(channel!=="all"&&String(r.channel)!==channel)return false;
+    const q=query.trim().toLowerCase();
+    if(q&&!String(r.version||"").toLowerCase().includes(q)&&!String(r.source_sha||"").toLowerCase().includes(q)&&!String(r.product_name||"orbitfs").toLowerCase().includes(q))return false;
+    return true;
+  });
+  const act=async(row:any,action:"approve"|"reject"|"rollback"|"withdraw"|"archive"|"restore")=>{
+    setBusy(row.id+":"+action);setError("");setMessage("");
+    try{await controlRelease({data:{token:session.token,releaseId:row.id,action}});setMessage("Release action completed: "+action+".");await onChanged?.()}
+    catch(x:any){setError(x.message||"Release action failed.")}
+    finally{setBusy("")}
+  };
   return <section className="space-y-4">
-    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end"><PageHead title="All releases" detail="Every Base and Engine candidate currently visible from License Master."/><div className="flex gap-2"><button className="button-secondary" onClick={onBase}><Rocket size={14}/> New Base</button><button className="button-primary" onClick={onEngine}><Layers3 size={14}/> New Engine update</button></div></div>
-    <section className="release-surface overflow-hidden">
-      <div className="flex items-center justify-between border-b p-4"><SectionHead icon={PackageCheck} title="Release registry" detail={`${releases.length} release records`}/><span className="text-[10px] text-muted-foreground">License Master authoritative state</span></div>
-      <ReleaseTable releases={releases}/>
-    </section>
+    <div className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end"><PageHead title="Releases" detail="Combined License Master release registry with technical lifecycle controls. Publishing is not performed here."/><div className="flex gap-2"><button className="button-secondary" onClick={onBase}><Rocket size={14}/> New Base</button><button className="button-primary" onClick={onEngine}><Layers3 size={14}/> New Update</button></div></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}{message&&<Alert tone="success" onClose={()=>setMessage("")}>{message}</Alert>}
+    <section className="release-surface p-4"><div className="grid gap-3 md:grid-cols-4"><Field label="Search"><input className="control" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Version or commit"/></Field><Field label="Type"><select className="control" value={type} onChange={e=>setType(e.target.value)}><option value="all">All</option><option value="base">Base</option><option value="update">Update</option></select></Field><Field label="State"><select className="control" value={state} onChange={e=>setState(e.target.value)}><option value="all">All</option><option value="draft">Draft</option><option value="published">Published</option><option value="disabled">Unpublished</option><option value="archived">Archived</option></select></Field><Field label="Channel"><select className="control" value={channel} onChange={e=>setChannelFilter(e.target.value)}><option value="all">All</option>{channels.map((x:any)=><option key={x} value={x}>{x}</option>)}</select></Field></div></section>
+    <section className="release-surface overflow-hidden"><div className="flex items-center justify-between border-b p-4"><SectionHead icon={PackageCheck} title="Release registry" detail={String(filtered.length)+" of "+String(releases.length)+" releases"}/><span className="text-[10px] text-muted-foreground">License Master authoritative state</span></div><div>{filtered.map((r:any)=><div key={r.id} className="border-b p-4 last:border-b-0"><div className="grid gap-3 md:grid-cols-[1fr_110px_130px_130px] md:items-center"><div className="min-w-0"><p className="truncate text-sm font-semibold">{r.product_name||"OrbitFS"} <span className="text-muted-foreground">v{r.version}</span></p><p className="mt-1 truncate text-[10px] text-muted-foreground">{r.release_type} · {r.channel} · {r.source_ref||"—"} · {(r.source_sha||"").slice(0,8)}</p></div><StatusPill text={r.archived_at?"archived":r.status||"draft"}/><StatusPill text={"review "+(r.review_status||"pending")}/><StatusPill text={"validation "+(r.manifest?.validation?.status||"not run")}/></div><div className="mt-3 flex flex-wrap gap-2">
+          {r.review_status==="pending"&&r.manifest?.validation?.status==="passed"&&<button className="button-primary" disabled={!!busy} onClick={()=>act(r,"approve")}>Approve technical review</button>}
+          {r.review_status==="pending"&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"reject")}>Reject</button>}
+          {r.release_type==="base"&&r.status==="published"&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"rollback")}>Prepare rollback</button>}
+          {r.status==="published"&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"withdraw")}>Unpublish</button>}
+          {!r.archived_at&&r.status!=="published"&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"archive")}>Archive</button>}
+          {r.archived_at&&<button className="button-secondary" disabled={!!busy} onClick={()=>act(r,"restore")}>Restore</button>}
+        </div></div>)}{!filtered.length&&<div className="p-10 text-center text-sm text-muted-foreground">No releases match these filters.</div>}</div></section>
+    <section className="release-surface p-4"><SectionHead icon={ShieldCheck} title="Control boundary" detail="Dev Panel can perform technical review, rollback preparation, unpublish and archive through License Master. Update customer publication remains Billing Store's final gate."/></section>
   </section>;
 }
+
 
 function MonitoringPage({releases,run,connected,session}:any) {
   const series=releaseSeries(releases);
