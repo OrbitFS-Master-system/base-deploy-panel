@@ -14,7 +14,7 @@ import {
   getReleaseHandoff, login, getAccessState, createPanelUser,
   updatePanelUser, createAccessGroup, updateAccessGroup, getControlState,
   controlRelease, getChannelsState, saveReleaseChannel, reviewChannelAccess,
-  getAuditState, getRepositoryStatus, getPortalMonitor
+  getAuditState, getRepositoryStatus, getPortalMonitor, getReleaseLifecycleEvents
 } from "@/lib/panel.server";
 
 export const Route = createFileRoute("/")({ component: Index });
@@ -157,7 +157,7 @@ function Index() {
     setBusy("inspect");
     setError(""); setNotice("");
     try {
-      const current = data[type].releases?.filter((r: any) => r.review_status === "approved" && r.source_sha)
+      const current = data[type].releases?.filter((r: any) => r.review_status === "approved" && r.source_sha && !r.archived_at)
         .sort((a: any, b: any) => new Date(b.published_at || b.created_at || 0).getTime() - new Date(a.published_at || a.created_at || 0).getTime())[0]?.source_sha;
       const r = await inspectSource({ data: { token: session.token, type, from: current, channel } });
       setFiles(r.files || []);
