@@ -179,8 +179,21 @@ export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:
   licenseMaster(`/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=true`),
   licenseMaster(`/release-channels?include_disabled=false`)
  ]);
+ const sb=authClient();
+ const {data:drafts,error:draftError}=await sb.from("panel_release_drafts").select("*").eq("release_type",releaseType).eq("channel",channel).order("updated_at",{ascending:false});
+ if(draftError)throw new Error("Unable to load release drafts: "+draftError.message);
+ const ids=(drafts||[]).map((x:any)=>x.id);
+ let attempts:any[]=[];
+ if(ids.length){
+  const {data:rows,error:attemptError}=await sb.from("panel_release_attempts").select("*").in("draft_id",ids).order("attempt_number",{ascending:false});
+  if(attemptError)throw new Error("Unable to load release attempts: "+attemptError.message);
+  attempts=rows||[];
+ }
+ const grouped=new Map<string,any[]>();
+ for(const attempt of attempts){const list=grouped.get(attempt.draft_id)||[];list.push(attempt);grouped.set(attempt.draft_id,list)}
+ const releaseDrafts=(drafts||[]).map((draft:any)=>({...draft,attempts:grouped.get(draft.id)||[]}));
  const availableChannels=Array.isArray(channels?.channels)?channels.channels.filter((x:any)=>x?.enabled===true).map((x:any)=>String(x.channel).trim().toLowerCase()).filter(Boolean):[];
- return {releases:releases?.releases||[],channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
+ return {releases:releases?.releases||[],drafts:releaseDrafts,channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
 });
 
 export const getReleaseLifecycleEvents=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;limit?:number}})=>{
@@ -225,14 +238,40 @@ export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({da
   if(!allowedRepos.has(repo))throw new Error("Release repository is not allowed");
   if(data.runId){
     const run=await github("/repos/"+repo+"/actions/runs/"+data.runId);
-    const jobs=await github("/repos/"+repo+"/actions/runs/"+data.runId+"/jobs?per_page=100");
-    return {run,jobs:jobs?.jobs||[]};
+    const jobsResult=await github("/repos/"+repo+"/actions/runs/"+data.runId+"/jobs?per_page=100");
+    const jobs=await Promise.all((jobsResult?.jobs||[]).map(async(job:any)=>{
+      let failure:any=null;
+      if(job.conclusion==="failure"){
+        try{
+          const logs=await operationsGithubText("/repos/"+repo+"/actions/jobs/"+job.id+"/logs");
+          failure=extractOperationFailure(logs)||fallbackOperationFailure(job,logs);
+        }catch(error:any){
+          failure={error:error?.message||"Workflow job failed.",preceding:[],lines:["Unable to retrieve GitHub job logs.",error?.message||"Unknown log error"]};
+        }
+      }
+      return {...job,failure};
+    }));
+    const failedJob=jobs.find((job:any)=>job.conclusion==="failure");
+    const failure=failedJob?.failure||null;
+    const completed=["success","failure","cancelled","skipped"].includes(String(run?.conclusion||""));
+    if(completed){
+      const sb=authClient();
+      const outcome=String(run.conclusion||"failure");
+      const errorText=failure?.lines?.join("\n")||failure?.error||null;
+      await sb.from("panel_release_attempts").update({status:outcome,error_summary:failure?.error||null,error_output:errorText,completed_at:new Date().toISOString(),run_url:run.html_url||null}).eq("run_id",data.runId);
+      await sb.from("panel_release_drafts").update({status:outcome==="success"?"handed_off":"failed",last_error:outcome==="success"?null:errorText,last_run_url:run.html_url||null,updated_at:new Date().toISOString()}).eq("last_run_id",data.runId);
+    }else{
+      const sb=authClient();
+      await sb.from("panel_release_attempts").update({status:"in_progress",run_url:run.html_url||null}).eq("run_id",data.runId);
+      await sb.from("panel_release_drafts").update({status:"building",last_run_url:run.html_url||null,updated_at:new Date().toISOString()}).eq("last_run_id",data.runId);
+    }
+    return {run,jobs,failure};
   }
   throw new Error("Release workflow run is not available yet");
 });
 
 export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string;notes:string;files:any[];components:string[];minimumBaseVersion:string;protocol:string;changelogTemplate:string}})=>{
- readSession(data.token);
+ const actor=readSession(data.token);
  const version=data.version.trim();
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
  if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one update target (Base, Apex, MCP, or Studio).");
@@ -312,18 +351,49 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  };
  if(data.type==="base") inputs.release_record=JSON.stringify(releaseRecord);
  if(data.type==="engine")Object.assign(inputs,{base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
+ const releaseType=data.type==="base"?"base":"update";
+ const sb=authClient();
+ const {data:existing,error:existingError}=await sb.from("panel_release_drafts").select("*").eq("release_type",releaseType).eq("version",version).eq("channel",channel).maybeSingle();
+ if(existingError)throw new Error("Unable to resolve release draft: "+existingError.message);
+ if(existing&&["archived","rejected"].includes(String(existing.status)))throw new Error("This release draft is closed. Use a new version instead of creating another attempt.");
+ const inputSnapshot={type:data.type,version,channel,notes:data.notes.trim(),components:selectedComponents,minimumBaseVersion:data.minimumBaseVersion||null,protocol:data.protocol||null,changelogTemplate:data.changelogTemplate,sourceSha:head,changedFiles:detectedFiles};
+ let draft:any=existing;
+ if(!draft){
+   const {data:created,error:createError}=await sb.from("panel_release_drafts").insert({release_type:releaseType,version,channel,source_repo:repo,source_ref:ref,source_sha:head,status:"draft",inputs:inputSnapshot,created_by:actor.email||actor.id}).select("*").single();
+   if(createError)throw new Error("Unable to create release draft: "+createError.message);
+   draft=created;
+ }
+ const attemptNumber=Number(draft.latest_attempt||0)+1;
+ const {error:draftUpdateError}=await sb.from("panel_release_drafts").update({status:"building",latest_attempt:attemptNumber,last_error:null,source_sha:head,inputs:inputSnapshot,updated_at:new Date().toISOString()}).eq("id",draft.id);
+ if(draftUpdateError)throw new Error("Unable to prepare release attempt: "+draftUpdateError.message);
+ const {data:attemptRow,error:attemptCreateError}=await sb.from("panel_release_attempts").insert({draft_id:draft.id,attempt_number:attemptNumber,status:"queued"}).select("*").single();
+ if(attemptCreateError)throw new Error("Unable to create release attempt: "+attemptCreateError.message);
+
  const dispatchedAt=Date.now();
-  await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
-  let runId:number|undefined;
-  for(let attempt=0;attempt<5&&!runId;attempt++){
-    await new Promise(r=>setTimeout(r,700));
-    try{
-      const runs=await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(ref)}&per_page=10`);
-      const candidates=(runs?.workflow_runs||[]).filter((r:any)=>r.head_branch===ref&&new Date(r.created_at||0).getTime()>=dispatchedAt-5000);
-      runId=candidates.sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime())[0]?.id;
-    }catch{}
-  }
-  return {ok:true,repo,ref,workflow,channel,runId:runId||null};
+ let runId:number|undefined;
+ let runUrl:string|undefined;
+ try{
+   await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
+   for(let attempt=0;attempt<5&&!runId;attempt++){
+     await new Promise(r=>setTimeout(r,700));
+     try{
+       const runs=await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(ref)}&per_page=10`);
+       const candidate=(runs?.workflow_runs||[]).filter((r:any)=>r.head_branch===ref&&new Date(r.created_at||0).getTime()>=dispatchedAt-5000).sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime())[0];
+       runId=candidate?.id;
+       runUrl=candidate?.html_url;
+     }catch{}
+   }
+ }catch(error:any){
+   const message=error?.message||"Unable to dispatch release workflow.";
+   await sb.from("panel_release_attempts").update({status:"failure",error_summary:message,error_output:message,completed_at:new Date().toISOString()}).eq("id",attemptRow.id);
+   await sb.from("panel_release_drafts").update({status:"failed",last_error:message,updated_at:new Date().toISOString()}).eq("id",draft.id);
+   throw error;
+ }
+ if(runId){
+   await sb.from("panel_release_attempts").update({run_id:runId,run_url:runUrl||null,status:"queued"}).eq("id",attemptRow.id);
+   await sb.from("panel_release_drafts").update({last_run_id:runId,last_run_url:runUrl||null,status:"building",updated_at:new Date().toISOString()}).eq("id",draft.id);
+ }
+ return {ok:true,repo,ref,workflow,channel,runId:runId||null,draftId:draft.id,attemptNumber};
 });
 
 
