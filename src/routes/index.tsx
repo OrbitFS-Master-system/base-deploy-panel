@@ -371,11 +371,6 @@ function Sidebar({ tab, setTab, activeRun }: any) {
           </div>
         </div>)}
       </nav>
-      <div className="orbit-authority-card mt-auto">
-        <div className="flex items-center gap-2"><ShieldCheck size={14}/><b>Authority chain</b></div>
-        <p>Dev Panel prepares. License Manager validates. Billing Store publishes updates.</p>
-        <div className="mt-3 grid grid-cols-3 gap-1"><span>Prepare</span><span>Validate</span><span>Publish</span></div>
-      </div>
     </div>
   </aside>;
 }
@@ -425,7 +420,6 @@ function Dashboard({ stats, releases, connected, run, channels, onBase, onEngine
     </div>
     <div className="orbit-dashboard-bottom-grid">
       <section className="orbit-panel p-4"><div className="flex items-center justify-between"><SectionHead icon={Activity} title="Release activity" detail="Release records created during the last seven days."/><strong className="text-xs">{series.reduce((n:number,x:any)=>n+x.count,0)}</strong></div><MiniLineChart data={series}/></section>
-      <section className="orbit-panel overflow-hidden"><div className="orbit-panel-toolbar"><SectionHead icon={Terminal} title="Pipeline path" detail="Release authority remains separated across systems."/></div><div className="orbit-console-lines"><PipelineStep icon={FileCode2} title="Inspect source" text="Resolve the configured release ref and approved baseline."/><PipelineStep icon={Github} title="Build package" text="GitHub produces artifact, manifest, checksum and metadata."/><PipelineStep icon={ShieldCheck} title="License Master" text="Validates and technically approves the candidate."/><PipelineStep icon={Globe2} title="Customer publication" text="Billing Store performs the final Update publication gate."/></div></section>
     </div>
   </section>;
 }
