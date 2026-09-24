@@ -468,7 +468,7 @@ type OperationsSystem=keyof typeof OPERATIONS_REPOS;
 
 function requireOperationsUser(token:string){
  const user=readSession(token);
- if(!["owner","admin"].includes(String(user.role||"").toLowerCase()))throw new Error("Admin access required");
+ if(!["owner","admin","operator"].includes(String(user.role||"").toLowerCase()))throw new Error("Operations access required");
  return user;
 }
 function operationsConfig(system:string){
