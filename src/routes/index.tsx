@@ -138,10 +138,10 @@ function Index() {
   const stats = useMemo(() => {
     const all = [...(data.base.releases || []), ...(data.engine.releases || [])];
     return {
-      candidates: all.filter((r: any) => r.review_status === "pending").length,
-      validationFailed: all.filter((r: any) => r.manifest?.validation?.status === "failed").length,
-      ready: all.filter((r: any) => r.review_status === "approved" && r.status !== "published").length,
-      published: all.filter((r: any) => r.status === "published").length,
+      candidates: all.filter((r: any) => !r.archived_at && r.review_status === "pending").length,
+      validationFailed: all.filter((r: any) => !r.archived_at && r.manifest?.validation?.status === "failed").length,
+      ready: all.filter((r: any) => !r.archived_at && r.review_status === "approved" && r.status !== "published").length,
+      published: all.filter((r: any) => !r.archived_at && r.status === "published").length,
     };
   }, [data]);
 
