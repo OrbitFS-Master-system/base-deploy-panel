@@ -285,22 +285,28 @@ function Login(p: any) {
 }
 
 function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
-  return <header className="orbit-topbar sticky top-0 z-30 border-b lg:ml-0">
-    <div className="flex h-[66px] items-center justify-between gap-3 px-4 sm:px-6">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="md:hidden orbit-logo scale-90"><span></span></div>
-        <div className="orbit-search hidden max-w-[560px] flex-1 items-center gap-2 md:flex">
-          <Search size={15}/><span className="text-xs text-muted-foreground">Search repositories, releases, or commits...</span><kbd>/</kbd>
+  return <header className="orbit-topbar sticky top-0 z-40 border-b">
+    <div className="flex h-[72px] items-center gap-4 px-4 sm:px-6">
+      <div className="flex min-w-0 items-center gap-3 md:w-[248px]">
+        <div className="orbit-brandmark"><span></span></div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold tracking-tight">OrbitFS Control</p>
+          <p className="truncate text-[10px] text-muted-foreground">Release operations</p>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <button className="icon-button border-0 bg-transparent" title="Refresh" onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} size={16} /></button>
-        <span className={`hidden rounded-full border px-2.5 py-1 text-[10px] font-semibold sm:inline-flex ${connected ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>
-          {connected ? "Master online" : "Master offline"}
-        </span>
-        <div className="hidden h-8 w-px bg-border sm:block"/>
-        <div className="hidden text-right sm:block"><p className="text-xs font-medium">{user.display_name || user.email}</p><p className="text-[10px] text-muted-foreground">{user.role || "operator"}</p></div>
-        <button className="orbit-avatar" title="Sign out" onClick={onSignOut}>{String(user.display_name || user.email || "O").slice(0,1).toUpperCase()}</button>
+      <div className="hidden min-w-0 flex-1 md:block">
+        <div className="orbit-commandbar max-w-[720px]">
+          <Search size={15}/><span>Search releases, repositories, runs…</span><kbd>/</kbd>
+        </div>
+      </div>
+      <div className="ml-auto flex items-center gap-2">
+        <div className={`orbit-master-badge ${connected?"is-online":"is-offline"}`}><span></span>{connected?"License Master online":"License Master offline"}</div>
+        <button className="icon-button" title="Refresh" onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} size={15}/></button>
+        <div className="orbit-user-chip">
+          <div className="orbit-avatar">{String(user.display_name || user.email || "O").slice(0,1).toUpperCase()}</div>
+          <div className="hidden sm:block"><p>{user.display_name || user.email}</p><small>{user.role || "operator"}</small></div>
+          <button onClick={onSignOut} title="Sign out"><ChevronDown size={14}/></button>
+        </div>
       </div>
     </div>
   </header>;
@@ -327,44 +333,46 @@ function MobileNav({ tab, setTab, activeRun }: any) {
 }
 
 function Sidebar({ tab, setTab, activeRun }: any) {
-  const items = [
-    ["overview", "Dashboard", "Release control overview", Gauge],
-    ["base", "Base Deployments", "Base release workspace", Rocket],
-    ["engine", "Updates", "Manifest-driven updates", Layers3],
-    ["releases", "Releases", "Combined release registry", PackageCheck],
-    ["activity", "Release Monitoring", "Live workflow health", Activity],
-    ["channels", "Channels", "Release access channels", Server],
-    ["portal", "Customer Portal", "Publication & access state", Globe2],
-    ["repositories", "Repositories", "Source & workers", Boxes],
-    ["monitoring", "Monitoring", "System telemetry", BarChart3],
-    ["audit", "Audit & History", "Release and access events", History],
-    ["access", "Users & Access", "Owner-managed access", Users],
-    ["settings", "Configuration", "Runtime configuration", Settings2],
+  const groups = [
+    {label:"Operate",items:[
+      ["overview","Overview","Command center",Gauge],
+      ["base","Base deployments","Build & handoff",Rocket],
+      ["engine","Updates","Manifest releases",Layers3],
+      ["releases","Release registry","Lifecycle state",PackageCheck],
+      ["activity","Release runs","Workflow execution",Activity],
+    ]},
+    {label:"Control",items:[
+      ["channels","Channels","Access policy",Server],
+      ["portal","Customer portal","Publication state",Globe2],
+      ["repositories","Repositories","Sources & workers",Boxes],
+      ["monitoring","Monitoring","System health",BarChart3],
+    ]},
+    {label:"Govern",items:[
+      ["audit","Audit history","Authority events",History],
+      ["access","Users & access","Panel permissions",Users],
+      ["settings","Configuration","Runtime settings",Settings2],
+    ]},
   ] as const;
-  return <aside className="orbit-sidebar hidden w-[230px] shrink-0 md:block">
-    <div className="sticky top-0 flex h-screen flex-col px-3 py-5">
-      <div className="mb-7 flex items-center gap-3 px-2">
-        <div className="orbit-logo"><span></span></div>
-        <div><p className="text-lg font-semibold tracking-tight">OrbitFS</p><p className="text-[10px] text-muted-foreground">Release Control</p></div>
-      </div>
-      <nav className="space-y-1">
-        {items.map(([id, label, detail, Icon]) => <button key={id} onClick={() => setTab(id as Tab)}
-          className={`orbit-nav-item ${tab === id ? "orbit-nav-active" : ""}`}>
-          <span className="orbit-nav-icon"><Icon size={16} /></span>
-          <span className="min-w-0 flex-1"><b>{label}</b><small>{detail}</small></span>
-          {id === "activity" && activeRun && <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
-        </button>)}
+  return <aside className="orbit-sidebar hidden shrink-0 md:block">
+    <div className="sticky top-[72px] flex h-[calc(100vh-72px)] flex-col overflow-y-auto p-3">
+      <nav className="space-y-5">
+        {groups.map(group=><div key={group.label}>
+          <p className="orbit-nav-group">{group.label}</p>
+          <div className="mt-2 space-y-1">
+            {group.items.map(([id,label,detail,Icon])=><button key={id} onClick={()=>setTab(id as Tab)}
+              className={`orbit-nav-item ${tab===id?"orbit-nav-active":""}`}>
+              <span className="orbit-nav-icon"><Icon size={16}/></span>
+              <span className="min-w-0 flex-1"><b>{label}</b><small>{detail}</small></span>
+              {id==="activity"&&activeRun&&<span className="orbit-run-dot"/>}
+            </button>)}
+          </div>
+        </div>)}
       </nav>
-      <div className="mt-auto rounded-xl border border-[#173555] bg-[#081828]/70 p-3">
-        <p className="text-[10px] uppercase tracking-[.14em] text-muted-foreground">Pipeline authority</p>
-        <div className="mt-3 space-y-2">
-          <StepLine n="1" text="Dev Panel prepares" active />
-          <StepLine n="2" text="License Master validates" />
-          <StepLine n="3" text="Billing Store reviews" />
-          <StepLine n="4" text="Customer release publishes" />
-        </div>
+      <div className="orbit-authority-card mt-auto">
+        <div className="flex items-center gap-2"><ShieldCheck size={14}/><b>Authority chain</b></div>
+        <p>Dev Panel prepares. License Manager validates. Billing Store publishes updates.</p>
+        <div className="mt-3 grid grid-cols-3 gap-1"><span>Prepare</span><span>Validate</span><span>Publish</span></div>
       </div>
-      <p className="px-2 pt-5 text-xs leading-5 text-[#6885a3]">Build further.<br/>Ship with OrbitFS.</p>
     </div>
   </aside>;
 }
@@ -850,13 +858,17 @@ function SettingsPage({ data, connected }: any) {
 }
 
 function ConfigCard({ title, icon: Icon, rows }: any) {
-  return <section className="release-surface p-4"><div className="flex items-center gap-2"><Icon size={15} className="text-primary"/><h2 className="text-sm font-semibold">{title}</h2></div><div className="mt-4 space-y-2">{rows.map(([k,v]:any)=><div key={k} className="flex items-start justify-between gap-4 border-b pb-2 text-[11px] last:border-b-0"><span className="text-muted-foreground">{k}</span><code className="max-w-[70%] break-all text-right">{v}</code></div>)}</div></section>;
+  return <section className="orbit-panel"><div className="orbit-panel-head"><span className="orbit-panel-icon"><Icon size={15}/></span><div><h2>{title}</h2><p>Runtime configuration</p></div></div><div className="orbit-kv-list">{rows.map(([k,v]:any)=><div key={k}><span>{k}</span><code>{v}</code></div>)}</div></section>;
 }
 
-function PageHead({ title, detail }: any) { return <div className="border-b pb-5"><p className="text-xs font-semibold uppercase tracking-[.16em] text-primary">OrbitFS Release Control</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">{title}</h1><p className="mt-2 text-sm text-muted-foreground">{detail}</p></div>; }
-function SectionHead({ icon: Icon, title, detail }: any) { return <div className="flex items-start gap-2.5"><span className="mt-0.5 text-primary"><Icon size={15}/></span><div><h2 className="text-sm font-semibold">{title}</h2><p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p></div></div>; }
-function StatusRow({ label, value, good }: any) { return <div className="flex items-center justify-between border-b py-2 text-xs last:border-b-0"><span className="text-muted-foreground">{label}</span><span className="flex items-center gap-1.5 font-medium">{good&&<i className="h-1.5 w-1.5 rounded-full bg-emerald-400"/>}{value}</span></div>; }
-function StatusPill({ text }: any) { return <span className="inline-flex w-fit rounded-full bg-muted px-2 py-1 text-[10px] font-medium">{text}</span>; }
+function PageHead({ title, detail }: any) {
+  return <div className="orbit-page-head"><div><p>OrbitFS / Release Control</p><h1>{title}</h1><span>{detail}</span></div><div className="orbit-page-head-mark"><CircleDot size={16}/></div></div>;
+}
+function SectionHead({ icon: Icon, title, detail }: any) {
+  return <div className="orbit-section-head"><span className="orbit-section-icon"><Icon size={15}/></span><div><h2>{title}</h2><p>{detail}</p></div></div>;
+}
+function StatusRow({ label, value, good }: any) { return <div className="orbit-status-row"><span>{label}</span><strong className={good?"is-good":""}>{good&&<i/>}{value}</strong></div>; }
+function StatusPill({ text }: any) { return <span className={`orbit-status-pill orbit-status-${String(text||"").toLowerCase().replace(/[^a-z0-9]+/g,"-")}`}>{text}</span>; }
 function Field({ label, children }: any) { return <label className="block text-xs font-medium">{label}{children}</label>; }
 function Alert({ tone, children, onClose }: any) { return <div className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs ${tone==="error"?"border-destructive/40 bg-destructive/10":"border-emerald-400/30 bg-emerald-400/10"}`}><span>{children}</span>{onClose&&<button className="opacity-60 hover:opacity-100" onClick={onClose}><XCircle size={14}/></button>}</div>; }
 
