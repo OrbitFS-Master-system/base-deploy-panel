@@ -318,8 +318,8 @@ const NAV_STANDALONE = [
 
 const NAV_GROUPS = [
   {label:"Operate",items:[
-    ["base","Base Deployment","First stage · Build & handoff",Rocket],
-    ["engine","Update Release System","First stage · Detect, package & validate",Layers3],
+    ["base","Base Releases","Build, package & handoff",Rocket],
+    ["engine","Update Releases","Detect, package & handoff",Layers3],
     ["operations","Operations","Deploy Billing Store & License Manager",Terminal],
   ]},
   {label:"Monitor",items:[
