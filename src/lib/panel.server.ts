@@ -10,7 +10,12 @@ const BASE_WORKFLOW=process.env.BASE_RELEASE_WORKFLOW||"release-to-license-maste
 const ENGINE_WORKFLOW=process.env.ENGINE_RELEASE_WORKFLOW||"publish-engine-release.yml";
 
 const required=(name:string)=>{const v=process.env[name];if(!v)throw new Error(`Missing server environment variable: ${name}`);return v};
-const masterUrl=()=> (process.env.LICENSE_MASTER_URL||"https://incendiarynetworks.cc/api/v1").replace(/\/+$/,"");
+const masterUrl=()=> {
+ const configured=(process.env.LICENSE_MASTER_URL||"https://incendiarynetworks.cc/api/v1").trim().replace(/\/+$/,"");
+ if(/\/api\/v1$/i.test(configured))return configured;
+ if(/\/api$/i.test(configured))return configured+"/v1";
+ return configured+"/api/v1";
+};
 const normalizeChannel=(value:string)=>String(value||"stable").trim().toLowerCase();
 const allowedRepos=new Set([BASE_REPO,ENGINE_REPO]);
 
