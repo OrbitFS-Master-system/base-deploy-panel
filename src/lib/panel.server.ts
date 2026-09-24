@@ -11,10 +11,15 @@ const ENGINE_WORKFLOW=process.env.ENGINE_RELEASE_WORKFLOW||"publish-engine-relea
 
 const required=(name:string)=>{const v=process.env[name];if(!v)throw new Error(`Missing server environment variable: ${name}`);return v};
 const masterUrl=()=> {
- const configured=(process.env.LICENSE_MASTER_URL||"https://incendiarynetworks.cc/api/v1").trim().replace(/\/+$/,"");
- if(/\/api\/v1$/i.test(configured))return configured;
- if(/\/api$/i.test(configured))return configured+"/v1";
- return configured+"/api/v1";
+ const configured=(process.env.LICENSE_MASTER_URL||"https://incendiarynetworks.cc/api/v1").trim();
+ const url=new URL(configured);
+ const path=url.pathname.replace(/\/+$/,"");
+ if(/\/api\/v1(?:\/.*)?$/i.test(path))url.pathname=path.replace(/\/api\/v1(?:\/.*)?$/i,"/api/v1");
+ else if(/\/api$/i.test(path))url.pathname=path+"/v1";
+ else url.pathname=(path||"")+"/api/v1";
+ url.search="";
+ url.hash="";
+ return url.toString().replace(/\/$/,"");
 };
 const normalizeChannel=(value:string)=>String(value||"stable").trim().toLowerCase();
 const allowedRepos=new Set([BASE_REPO,ENGINE_REPO]);
