@@ -522,12 +522,12 @@ async function operationsRunDetail(cfg:(typeof OPERATIONS_REPOS)[OperationsSyste
  const jobsResult=await github("/repos/"+cfg.repo+"/actions/runs/"+run.id+"/jobs?per_page=100");
  const jobs=await Promise.all((jobsResult?.jobs||[]).map(async(job:any)=>{
   let failure:any=null,logTail="",logError="";
-  try{const logs=await operationsGithubText("/repos/"+cfg.repo+"/actions/jobs/"+job.id+"/logs");const lines=logs.split(/\r?\n/).filter(Boolean);logTail=lines.slice(-250).join("\n");failure=extractOperationFailure(logs)}
+  try{const logs=await operationsGithubText("/repos/"+cfg.repo+"/actions/jobs/"+job.id+"/logs");const lines=logs.split(/\r?\n/).filter(Boolean);logTail=lines.slice(-250).join("\n");if(job.conclusion==="failure")failure=extractOperationFailure(logs)}
   catch(error:any){logError=error?.message||"Unable to retrieve GitHub job logs."}
-  if(!failure)failure=fallbackOperationFailure(job,logTail);
+  if(job.conclusion==="failure"&&!failure)failure=fallbackOperationFailure(job,logTail);
   return {id:job.id,name:job.name,status:job.status,conclusion:job.conclusion,started_at:job.started_at,completed_at:job.completed_at,html_url:job.html_url,steps:(job.steps||[]).map((s:any)=>({name:s.name,status:s.status,conclusion:s.conclusion,started_at:s.started_at,completed_at:s.completed_at})),failure,logTail,logError};
  }));
- const failedJob=jobs.find((j:any)=>j.conclusion==="failure"||j.failure);
+ const failedJob=jobs.find((j:any)=>j.conclusion==="failure");
  const failure=failedJob?.failure||null;
  const chatPrompt=failure?[
   "Fix this failed GitHub Actions job.","",
