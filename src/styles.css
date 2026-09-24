@@ -1140,3 +1140,28 @@ tbody tr:hover{background:rgba(255,255,255,.018)}
   .orbit-filter-search{grid-column:1/-1}
   .orbit-console-lines{grid-template-columns:1fr}
 }
+
+
+/* Shared reference shell */
+.orbit-sidebar-brand{display:flex;align-items:center;gap:.7rem;padding:.35rem .55rem 1rem;margin-bottom:.5rem;border-bottom:1px solid rgba(255,255,255,.05)}
+.orbit-sidebar-brand b{display:block;font-size:1.05rem;letter-spacing:-.03em}
+.orbit-sidebar-brand small{display:block;margin-top:2px;color:#667589;font-size:.56rem}
+.orbit-reference-page-head{padding:.2rem 0 .35rem}
+.orbit-reference-page-head>p{color:#7f9cff;font-size:.58rem;font-weight:750;letter-spacing:.17em;text-transform:uppercase}
+.orbit-reference-page-head h1{margin:.35rem 0 0;font-size:2.1rem;line-height:1;font-weight:710;letter-spacing:-.045em}
+.orbit-reference-page-head span{display:block;margin-top:.55rem;max-width:820px;color:#8795a8;font-size:.75rem;line-height:1.6}
+.orbit-login-shell{
+  min-height:100vh;display:grid;place-items:center;position:relative;padding:2rem;
+  background:radial-gradient(circle at 50% 10%,rgba(91,140,255,.13),transparent 28rem),#06080c
+}
+.orbit-login-brand{position:absolute;left:2rem;top:1.7rem;display:flex;align-items:center;gap:.7rem}
+.orbit-login-brand b{display:block;font-size:1.15rem;letter-spacing:-.035em}
+.orbit-login-brand small{display:block;margin-top:2px;color:#68778a;font-size:.6rem}
+.orbit-login-card{
+  width:min(100%,460px);border:1px solid rgba(255,255,255,.08);border-radius:16px;
+  background:linear-gradient(180deg,rgba(15,20,29,.97),rgba(9,13,19,.98));padding:1.5rem;
+  box-shadow:0 28px 80px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.03)
+}
+.orbit-login-card h1{margin:.5rem 0 0;font-size:2rem;letter-spacing:-.045em}
+.orbit-login-copy{margin-top:.7rem;color:#8694a6;font-size:.72rem;line-height:1.65}
+.orbit-login-authority{display:flex;gap:.55rem;margin-top:1rem;border-top:1px solid rgba(255,255,255,.055);padding-top:1rem;color:#68778b;font-size:.6rem;line-height:1.5}
