@@ -265,21 +265,19 @@ function composerProps(p: any) {
 }
 
 function Login(p: any) {
-  return <div className="min-h-screen grid place-items-center p-5 bg-background">
-    <form onSubmit={p.onSubmit} className="w-full max-w-[420px] rounded-2xl border bg-card p-7 shadow-2xl">
-      <div className="mb-7">
-        <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-black">O</div>
-          <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-primary">OrbitFS</p><h1 className="text-xl font-semibold">Release Control</h1></div></div>
-        <p className="mt-5 text-sm leading-6 text-muted-foreground">Stage 1 release preparation. Inspect source, build the release handoff, and send the candidate to License Master.</p>
+  return <div className="orbit-login-shell">
+    <div className="orbit-login-brand"><div className="orbit-brandmark"><span></span></div><div><b>OrbitFS</b><small>Release Control</small></div></div>
+    <form onSubmit={p.onSubmit} className="orbit-login-card">
+      <p className="orbit-reference-kicker">PRIVATE OPERATIONS CONSOLE</p>
+      <h1>Sign in to OrbitFS</h1>
+      <p className="orbit-login-copy">Prepare Base deployments and manifest-driven updates, monitor release builders, and hand candidates to License Master.</p>
+      <div className="mt-6 space-y-3">
+        <Field label="Email"><input className="control" type="email" value={p.email} onChange={e=>p.setEmail(e.target.value)} required/></Field>
+        <Field label="Password"><input className="control" type="password" value={p.password} onChange={e=>p.setPassword(e.target.value)} required/></Field>
       </div>
-      <div className="space-y-3">
-        <Field label="Email"><input className="control" type="email" value={p.email} onChange={e => p.setEmail(e.target.value)} required /></Field>
-        <Field label="Password"><input className="control" type="password" value={p.password} onChange={e => p.setPassword(e.target.value)} required /></Field>
-      </div>
-      {p.error && <Alert tone="error">{p.error}</Alert>}
-      <button className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground" disabled={p.busy === "login"}>
-        {p.busy === "login" ? "Signing in…" : "Sign in"}
-      </button>
+      {p.error&&<div className="mt-4"><Alert tone="error">{p.error}</Alert></div>}
+      <button className="button-primary mt-5 w-full" disabled={p.busy==="login"}>{p.busy==="login"?"Signing in…":"Sign in"}</button>
+      <div className="orbit-login-authority"><ShieldCheck size={14}/><span>License Manager remains the technical authority. Billing Store remains the customer publication gate for updates.</span></div>
     </form>
   </div>;
 }
@@ -287,7 +285,7 @@ function Login(p: any) {
 function Header({ connected, loading, onRefresh, onSignOut, user }: any) {
   return <header className="orbit-topbar sticky top-0 z-40 border-b">
     <div className="flex h-[72px] items-center gap-4 px-4 sm:px-6">
-      <div className="flex min-w-0 items-center gap-3 md:w-[248px]">
+      <div className="flex min-w-0 items-center gap-3 md:hidden">
         <div className="orbit-brandmark"><span></span></div>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold tracking-tight">OrbitFS Control</p>
@@ -355,6 +353,7 @@ function Sidebar({ tab, setTab, activeRun }: any) {
   ] as const;
   return <aside className="orbit-sidebar hidden shrink-0 md:block">
     <div className="sticky top-[72px] flex h-[calc(100vh-72px)] flex-col overflow-y-auto p-3">
+      <div className="orbit-sidebar-brand"><div className="orbit-brandmark"><span></span></div><div><b>OrbitFS</b><small>Release Control</small></div></div>
       <nav className="space-y-5">
         {groups.map(group=><div key={group.label}>
           <p className="orbit-nav-group">{group.label}</p>
@@ -831,8 +830,9 @@ function ConfigCard({ title, icon: Icon, rows }: any) {
 }
 
 function PageHead({ title, detail }: any) {
-  return <div className="orbit-page-head"><div><p>OrbitFS / Release Control</p><h1>{title}</h1><span>{detail}</span></div><div className="orbit-page-head-mark"><CircleDot size={16}/></div></div>;
+  return <div className="orbit-reference-page-head"><p>ORBITFS RELEASE CONTROL</p><h1>{title}</h1><span>{detail}</span></div>;
 }
+
 function SectionHead({ icon: Icon, title, detail }: any) {
   return <div className="orbit-section-head"><span className="orbit-section-icon"><Icon size={15}/></span><div><h2>{title}</h2><p>{detail}</p></div></div>;
 }
