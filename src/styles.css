@@ -986,3 +986,75 @@ tbody tr:hover{background:rgba(255,255,255,.018)}
   .orbit-page-head{padding:1rem}
   .orbit-page-head h1{font-size:1.65rem}
 }
+
+
+/* Base + Update release workstation */
+.orbit-workbench-toolbar{
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;
+  min-height:52px;border:1px solid rgba(255,255,255,.07);border-radius:13px;
+  background:linear-gradient(180deg,rgba(15,20,28,.96),rgba(10,14,20,.96));
+  padding:.7rem .85rem
+}
+.orbit-workbench-toolbar>div{display:flex;align-items:center;gap:.45rem}
+.orbit-workbench-toolbar button{border:0;background:none;color:#7f9cff;font-size:.67rem;font-weight:650}
+.orbit-workbench-toolbar b{font-size:.72rem}
+.orbit-release-steps{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;
+  overflow:hidden;border:1px solid rgba(255,255,255,.07);border-radius:13px;
+  background:rgba(255,255,255,.07)
+}
+.orbit-release-step{
+  display:flex;align-items:center;gap:.65rem;min-height:70px;
+  background:#0a0f16;padding:.7rem .8rem;text-align:left;color:#7a8799
+}
+.orbit-release-step>span{
+  display:grid;place-items:center;width:28px;height:28px;flex:0 0 auto;border:1px solid rgba(255,255,255,.08);
+  border-radius:999px;background:rgba(255,255,255,.025);font-size:.57rem;font-weight:750
+}
+.orbit-release-step b{display:block;font-size:.68rem;color:#aeb8c6}
+.orbit-release-step small{display:block;margin-top:2px;font-size:.54rem;color:#637084}
+.orbit-release-step.is-active{
+  background:linear-gradient(180deg,rgba(109,140,255,.14),#0a0f16);
+  box-shadow:inset 0 -2px 0 #6d8cff
+}
+.orbit-release-step.is-active>span{
+  border-color:rgba(120,151,255,.28);background:rgba(109,140,255,.14);color:#8ca6ff
+}
+.orbit-release-step.is-active b{color:#eef3ff}
+.orbit-release-step.is-good>span{
+  border-color:rgba(73,214,163,.2);background:rgba(73,214,163,.08);color:#65d9b0
+}
+.orbit-release-step.is-good b{color:#9fb0c2}
+.orbit-gate{
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;
+  border-bottom:1px solid rgba(255,255,255,.05);padding:.65rem 0;font-size:.65rem
+}
+.orbit-gate:last-child{border-bottom:0}
+.orbit-gate>span{color:#738196}
+.orbit-gate strong{display:flex;align-items:center;gap:.35rem;color:#6f7c8d;font-size:.6rem;font-weight:650}
+.orbit-gate strong.is-ready{color:#6ddcb3}
+.orbit-kv-row{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;
+  border-bottom:1px solid rgba(255,255,255,.05);padding:.65rem 0;font-size:.64rem
+}
+.orbit-kv-row:last-child{border-bottom:0}
+.orbit-kv-row span{color:#728095}
+.orbit-kv-row code{max-width:68%;text-align:right;word-break:break-word;color:#d8dfe9}
+.orbit-update-workbench .orbit-release-steps{
+  box-shadow:0 0 0 1px rgba(109,140,255,.015)
+}
+.orbit-update-workbench .release-surface,
+.orbit-base-workbench .release-surface{
+  border-color:rgba(255,255,255,.075)!important
+}
+.orbit-update-workbench .orbit-component{
+  min-height:64px;border-color:rgba(255,255,255,.075);background:#090e15
+}
+.orbit-update-workbench .orbit-component-selected{
+  border-color:rgba(120,151,255,.4);
+  background:linear-gradient(180deg,rgba(109,140,255,.12),rgba(10,15,23,.98))
+}
+.orbit-update-workbench .orbit-component-icon{background:rgba(109,140,255,.09);color:#84a0ff}
+@media(max-width:900px){
+  .orbit-release-steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
