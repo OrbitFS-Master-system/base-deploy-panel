@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ReleaseWorkspace } from "@/components/release-workspace";
+import { OperationsWorkspace } from "@/components/operations-workspace";
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertCircle, ArrowRight, CheckCircle2, ChevronRight, CircleDot,
@@ -18,7 +19,7 @@ import {
 
 export const Route = createFileRoute("/")({ component: Index });
 
-type Tab = "overview" | "releases" | "base" | "engine" | "activity" | "channels" | "portal" | "repositories" | "monitoring" | "audit" | "access" | "settings";
+type Tab = "overview" | "releases" | "base" | "engine" | "activity" | "operations" | "channels" | "portal" | "repositories" | "monitoring" | "audit" | "access" | "settings";
 type ReleaseType = "base" | "engine";
 
 const EMPTY = { releases: [], channels: [] };
@@ -242,6 +243,7 @@ function Index() {
               onInspect={() => inspect("engine")} onStart={() => start("engine")}
               run={runRepo === "lucaskerim123/V1-vercel-engine" ? run : null} runRepo={runRepo} handoff={handoff} connected={masterConnected} />}
             {tab === "activity" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} session={session} />}
+            {tab === "operations" && <OperationsWorkspace session={session} />}
             {tab === "repositories" && <RepositoriesPage data={data} session={session} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
             {tab === "channels" && <ChannelsPage channels={availableChannels} data={data} session={session} />}
             {tab === "portal" && <CustomerPortalPage releases={allReleases} channels={availableChannels} session={session} />}
@@ -317,6 +319,7 @@ function MobileNav({ tab, setTab, activeRun }: any) {
     ["engine","Updates",Layers3],
     ["releases","Releases",PackageCheck],
     ["activity","Runs",Activity],
+    ["operations","Operations",Terminal],
     ["channels","Channels",Server],
     ["portal","Portal",Globe2],
     ["settings","Config",Settings2],
@@ -338,6 +341,7 @@ function Sidebar({ tab, setTab, activeRun }: any) {
       ["engine","Updates","Manifest releases",Layers3],
       ["releases","Release registry","Lifecycle state",PackageCheck],
       ["activity","Release runs","Workflow execution",Activity],
+      ["operations","Operations","Production CI & deploy",Terminal],
     ]},
     {label:"Control",items:[
       ["channels","Channels","Access policy",Server],
