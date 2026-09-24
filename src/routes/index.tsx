@@ -244,7 +244,7 @@ function Index() {
             {tab === "repositories" && <RepositoriesPage data={data} session={session} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
             {tab === "channels" && <ChannelsPage channels={availableChannels} data={data} session={session} />}
             {tab === "portal" && <CustomerPortalPage releases={allReleases} channels={availableChannels} session={session} />}
-            {tab === "monitoring" && <SystemMonitoringPage releases={allReleases} connected={masterConnected} run={run} />}
+            {tab === "monitoring" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} session={session} />}
             {tab === "audit" && <AuditPage releases={allReleases} run={run} session={session} />}
             {tab === "access" && <AccessPage session={session} />}
             {tab === "settings" && <SettingsPage data={data} connected={masterConnected} />}
