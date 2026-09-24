@@ -115,6 +115,13 @@ export const updatePanelUser=createServerFn({method:"POST"}).handler(async({data
  if(typeof data.displayName==="string"){const v=data.displayName.trim();if(!v)throw new Error("Display name is required");patch.display_name=v}
  if(data.password){const hp=hashPassword(data.password);patch.password_hash=hp.hash;patch.password_salt=hp.salt}
  if(String(data.userId)===actor.id&&patch.status==="disabled")throw new Error("You cannot disable your own Owner account");
+ if(patch.role==="admin"||patch.status==="disabled"){
+  const {data:target}=await sb.from("users").select("role,status").eq("id",data.userId).maybeSingle();
+  if(target?.role==="owner"&&target?.status==="active"){
+   const {count}=await sb.from("users").select("id",{count:"exact",head:true}).eq("role","owner").eq("status","active");
+   if((count||0)<=1)throw new Error("At least one active Owner account is required");
+  }
+ }
  const {data:user,error}=await sb.from("users").update(patch).eq("id",data.userId).select("id,email,display_name,role,status,last_login_at,created_at").single();
  if(error)throw new Error("Unable to update user");
  if(Array.isArray(data.groupIds)){
