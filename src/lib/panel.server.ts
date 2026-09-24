@@ -216,7 +216,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  readSession(data.token);
  const version=data.version.trim();
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
- if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one Engine update target (Apex, MCP, or Studio).");
+ if(data.type==="engine"&&!data.components.length)throw new Error("Select at least one update target (Base, Apex, MCP, or Studio).");
  const channel=normalizeChannel(data.channel);
  const expectedTemplate = data.type === "base" ? "base_deployment_log" : "update_changelog";
  if (data.changelogTemplate !== expectedTemplate) throw new Error(`Use the ${expectedTemplate === "base_deployment_log" ? "Base Deployment Log" : "Update Changelog"} template for this release type.`);
@@ -259,7 +259,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  }
 
  const selectedComponents = data.type === "engine"
-   ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["apex","mcp","studio"].includes(x)))]
+   ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["base","apex","mcp","studio"].includes(x)))]
    : ["base"];
 
  const releaseRecord = {
@@ -288,7 +288,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   previous_source_commit:previousSourceCommit,
  };
  if(data.type==="base") inputs.release_record=JSON.stringify(releaseRecord);
- if(data.type==="engine")Object.assign(inputs,{apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
+ if(data.type==="engine")Object.assign(inputs,{base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
  const dispatchedAt=Date.now();
   await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
   let runId:number|undefined;
