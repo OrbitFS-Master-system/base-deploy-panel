@@ -356,38 +356,7 @@ export const controlRelease=createServerFn({method:"POST"}).handler(async({data}
 export const getChannelsState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
  readSession(data.token);
  const channels=await licenseMaster('/release-channels?include_disabled=true');
- const [requestsResult,accessResult]=await Promise.allSettled([
-  licenseMaster('/release-channels/access?status=all'),
-  licenseMaster('/release-channels/access?view=access&status=all')
- ]);
- const warnings:string[]=[];
- const requests=requestsResult.status==="fulfilled"?(requestsResult.value?.requests||[]):[];
- const access=accessResult.status==="fulfilled"?(accessResult.value?.access||[]):[];
- if(requestsResult.status==="rejected")warnings.push("Channel access requests are temporarily unavailable.");
- if(accessResult.status==="rejected")warnings.push("Channel assignments are temporarily unavailable.");
- return {channels:channels?.channels||[],requests,access,warnings};
-});
-
-export const saveReleaseChannel=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;channel:string;label:string;description?:string;enabled:boolean;customerVisible:boolean;accessMode:string;accessRequestEnabled:boolean;selfJoinEnabled:boolean;sortOrder?:number}})=>{
- const actor=readSession(data.token);
- if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
- const channel=String(data.channel||"").trim().toLowerCase();
- if(!channel)throw new Error("Channel is required");
- return licenseMaster('/release-channels',{method:"POST",body:JSON.stringify({
-   channel,label:String(data.label||channel).trim(),description:String(data.description||"").trim(),
-   enabled:Boolean(data.enabled),customer_visible:Boolean(data.customerVisible),
-   access_mode:String(data.accessMode||"assigned").trim().toLowerCase(),
-   access_request_enabled:Boolean(data.accessRequestEnabled),self_join_enabled:Boolean(data.selfJoinEnabled),
-   sort_order:Number.isFinite(Number(data.sortOrder))?Number(data.sortOrder):0
- })});
-});
-
-export const reviewChannelAccess=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;action:"grant"|"reject"|"revoke";licenseId:string;channel:string;reason?:string}})=>{
- const actor=readSession(data.token);
- if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
- const licenseId=String(data.licenseId||"").trim(),channel=String(data.channel||"").trim().toLowerCase();
- if(!licenseId||!channel)throw new Error("License and channel are required");
- return licenseMaster('/release-channels/access',{method:"POST",body:JSON.stringify({action:data.action,license_id:licenseId,channel,reason:data.reason||undefined})});
+ return {channels:channels?.channels||[],warnings:[]};
 });
 
 export const getAuditState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;limit?:number}})=>{
