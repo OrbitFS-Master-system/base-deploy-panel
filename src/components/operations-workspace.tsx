@@ -3,8 +3,8 @@ import {Activity,AlertTriangle,CheckCircle2,ChevronDown,ChevronRight,ExternalLin
 import {getOperationsState,getOperationsScan,runOperation} from "@/lib/panel.server";
 
 const SYSTEMS=[
- {key:"licenseManager",label:"Custom License Manager",repo:"lucaskerim123/Custom-licence-manager"},
- {key:"billingStore",label:"V2 Billing Store",repo:"lucaskerim123/V2_Billing_Store"},
+ {key:"licenseManager",label:"Custom License Manager"},
+ {key:"billingStore",label:"V2 Billing Store"},
 ] as const;
 
 function time(v?:string|null){return v?new Date(v).toLocaleString():"—"}
@@ -89,7 +89,7 @@ export function OperationsWorkspace({session}:{session:any}){
      <button className="flex w-full items-center justify-between gap-4 border-b px-4 py-3 text-left hover:bg-muted/20" onClick={()=>setCollapsed(v=>({...v,[system.key]:!isCollapsed}))}>
       <div className="flex min-w-0 items-center gap-3">
        <span className="orbit-section-icon"><Server size={15}/></span>
-       <div className="min-w-0"><p className="text-sm font-semibold">{system.label}</p><code className="block truncate text-[10px] text-muted-foreground">{system.repo}</code></div>
+       <div className="min-w-0"><p className="text-sm font-semibold">{system.label}</p><code className="block truncate text-[10px] text-muted-foreground">{s.repo||"—"}</code></div>
       </div>
       <div className="flex items-center gap-2"><Pill text={runStatus(run)}/>{isCollapsed?<ChevronRight size={15}/>:<ChevronDown size={15}/>}</div>
      </button>
