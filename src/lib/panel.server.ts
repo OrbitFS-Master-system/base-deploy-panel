@@ -296,6 +296,109 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   return {ok:true,repo,ref,workflow,channel,runId:runId||null};
 });
 
+
+export const getControlState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ readSession(data.token);
+ const [base,updates,channels,audit]=await Promise.all([
+  licenseMaster('/releases?product=orbitfs_base&type=base&include_archived=true'),
+  licenseMaster('/releases?product=orbitfs_base&type=update&include_archived=true'),
+  licenseMaster('/release-channels?include_disabled=true'),
+  licenseMaster('/audit-events?limit=100')
+ ]);
+ return {
+  releases:[...(base?.releases||[]),...(updates?.releases||[])].sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime()),
+  channels:channels?.channels||[],
+  audit:audit?.events||[],
+  repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}},
+  masterUrl:masterUrl()
+ };
+});
+
+export const controlRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;releaseId:string;action:"approve"|"reject"|"rollback"|"withdraw"|"archive"|"restore";reason?:string}})=>{
+ const actor=readSession(data.token);
+ if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
+ const id=String(data.releaseId||"").trim();
+ if(!id)throw new Error("Release ID is required");
+ const action=String(data.action||"").trim().toLowerCase();
+ if(!["approve","reject","rollback","withdraw","archive","restore"].includes(action))throw new Error("Unsupported release action");
+ const result=await licenseMaster(`/releases/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify({action,reason:data.reason||undefined})});
+ return result;
+});
+
+export const getChannelsState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ readSession(data.token);
+ const [channels,requests,access]=await Promise.all([
+  licenseMaster('/release-channels?include_disabled=true'),
+  licenseMaster('/release-channels/access?status=all'),
+  licenseMaster('/release-channels/access?view=access&status=all')
+ ]);
+ return {channels:channels?.channels||[],requests:requests?.requests||[],access:access?.access||[]};
+});
+
+export const saveReleaseChannel=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;channel:string;label:string;description?:string;enabled:boolean;customerVisible:boolean;accessMode:string;accessRequestEnabled:boolean;selfJoinEnabled:boolean;sortOrder?:number}})=>{
+ const actor=readSession(data.token);
+ if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
+ const channel=String(data.channel||"").trim().toLowerCase();
+ if(!channel)throw new Error("Channel is required");
+ return licenseMaster('/release-channels',{method:"POST",body:JSON.stringify({
+   channel,label:String(data.label||channel).trim(),description:String(data.description||"").trim(),
+   enabled:Boolean(data.enabled),customer_visible:Boolean(data.customerVisible),
+   access_mode:String(data.accessMode||"assigned").trim().toLowerCase(),
+   access_request_enabled:Boolean(data.accessRequestEnabled),self_join_enabled:Boolean(data.selfJoinEnabled),
+   sort_order:Number.isFinite(Number(data.sortOrder))?Number(data.sortOrder):0
+ })});
+});
+
+export const reviewChannelAccess=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;action:"grant"|"reject"|"revoke";licenseId:string;channel:string;reason?:string}})=>{
+ const actor=readSession(data.token);
+ if(!["owner","admin"].includes(String(actor.role).toLowerCase()))throw new Error("Admin access required");
+ const licenseId=String(data.licenseId||"").trim(),channel=String(data.channel||"").trim().toLowerCase();
+ if(!licenseId||!channel)throw new Error("License and channel are required");
+ return licenseMaster('/release-channels/access',{method:"POST",body:JSON.stringify({action:data.action,license_id:licenseId,channel,reason:data.reason||undefined})});
+});
+
+export const getAuditState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;limit?:number}})=>{
+ readSession(data.token);
+ const limit=Math.min(200,Math.max(1,Number(data.limit||100)));
+ const result=await licenseMaster(`/audit-events?limit=${limit}`);
+ return {events:result?.events||[]};
+});
+
+export const getRepositoryStatus=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ readSession(data.token);
+ const configs=[
+  {key:"base",repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},
+  {key:"engine",repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW},
+ ];
+ const rows:any[]=[];
+ for(const cfg of configs){
+  let head:any=null,run:any=null;
+  try{const branch=await github(`/repos/${cfg.repo}/git/ref/heads/${encodeURIComponent(cfg.ref)}`);head=branch?.object?.sha||null;}catch{}
+  try{
+   const runs=await github(`/repos/${cfg.repo}/actions/workflows/${encodeURIComponent(cfg.workflow)}/runs?branch=${encodeURIComponent(cfg.ref)}&per_page=1`);
+   run=(runs?.workflow_runs||[])[0]||null;
+  }catch{}
+  rows.push({...cfg,head,run});
+ }
+ return {repositories:rows};
+});
+
+export const getPortalMonitor=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
+ readSession(data.token);
+ const [base,updates,channels]=await Promise.all([
+  licenseMaster('/releases?product=orbitfs_base&type=base&include_archived=true'),
+  licenseMaster('/releases?product=orbitfs_base&type=update&include_archived=true'),
+  licenseMaster('/release-channels?include_disabled=true')
+ ]);
+ const releases=[...(base?.releases||[]),...(updates?.releases||[])];
+ return {
+  releases,
+  published:releases.filter((r:any)=>r.status==="published"&&!r.archived_at),
+  channels:channels?.channels||[],
+  portalUrl:(process.env.CUSTOMER_PORTAL_URL||process.env.BILLING_STORE_URL||"").replace(/\/+$/,"")
+ };
+});
+
 async function requestJson(url:string,init:RequestInit={}){
  let r:Response;
  try {
