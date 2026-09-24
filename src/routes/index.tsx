@@ -770,15 +770,19 @@ function MonitoringPage({releases,run,connected}:any) {
   </section>;
 }
 
-function RepositoriesPage({data,onBase,onEngine}:any) {
-  const base=data.base?.repositories?.base, engine=data.engine?.repositories?.engine;
-  return <section className="space-y-4"><PageHead title="Repositories" detail="Release builders connected to the Dev Panel. These remain execution workers, not release authorities."/>
-    <div className="grid gap-4 lg:grid-cols-2">
-      <RepositoryCard title="OrbitFS Base" repo={base?.repo} refName={base?.ref} workflow={base?.workflow} icon={Rocket} onCreate={onBase}/>
-      <RepositoryCard title="OrbitFS Engine" repo={engine?.repo} refName={engine?.ref} workflow={engine?.workflow} icon={Layers3} onCreate={onEngine}/>
-    </div>
+function RepositoriesPage({data,session,onBase,onEngine}:any) {
+  const [rows,setRows]=useState<any[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const loadRepos=async()=>{setLoading(true);setError("");try{const r=await getRepositoryStatus({data:{token:session.token}});setRows(r.repositories||[])}catch(x:any){setError(x.message||"Unable to load repository status.")}finally{setLoading(false)}};
+  useEffect(()=>{void loadRepos()},[session.token]);
+  return <section className="space-y-4">
+    <div className="flex flex-col justify-between gap-3 border-b pb-5 md:flex-row md:items-end"><PageHead title="Repositories" detail="Live source refs and the latest release-builder workflow for the two allowed release repositories."/><button className="button-secondary" onClick={loadRepos} disabled={loading}><RefreshCw size={14} className={loading?"animate-spin":""}/> Refresh</button></div>
+    {error&&<Alert tone="error" onClose={()=>setError("")}>{error}</Alert>}
+    <div className="grid gap-4 lg:grid-cols-2">{rows.map((row:any)=><section key={row.key} className="release-surface overflow-hidden"><div className="flex items-start justify-between border-b p-4"><SectionHead icon={row.key==="base"?Rocket:Layers3} title={row.key==="base"?"OrbitFS Base":"OrbitFS Engine"} detail={row.repo}/><StatusPill text={row.head?"connected":"unavailable"}/></div><div className="space-y-2 p-4"><StatusRow label="Release ref" value={row.ref}/><StatusRow label="Current SHA" value={row.head?String(row.head).slice(0,12):"Unavailable"}/><StatusRow label="Workflow" value={row.workflow}/><StatusRow label="Latest run" value={row.run?"#"+row.run.id+" · "+(row.run.conclusion||row.run.status):"No run found"}/></div><div className="flex flex-wrap gap-2 border-t p-4">{row.run?.html_url&&<a className="button-secondary" href={row.run.html_url} target="_blank" rel="noreferrer"><Github size={14}/> Open latest run</a>}<button className="button-primary" onClick={row.key==="base"?onBase:onEngine}><Rocket size={14}/> Prepare release</button></div></section>)}{!loading&&!rows.length&&<div className="release-surface p-8 text-center text-xs text-muted-foreground">No repository state returned.</div>}</div>
   </section>;
 }
+
 
 function RepositoryCard({title,repo,refName,workflow,icon:Icon,onCreate}:any) {
   return <section className="release-surface overflow-hidden"><div className="flex items-start justify-between border-b p-4"><SectionHead icon={Icon} title={title} detail={repo||"Repository unavailable"}/><span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[9px] text-emerald-300">CONNECTED</span></div><div className="space-y-2 p-4"><StatusRow label="Repository" value={repo||"—"}/><StatusRow label="Release ref" value={refName||"—"}/><StatusRow label="Workflow" value={workflow||"—"}/></div><div className="border-t p-4"><button className="button-primary" onClick={onCreate}><Rocket size={14}/> Prepare release</button></div></section>;
