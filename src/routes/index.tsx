@@ -236,12 +236,12 @@ function Index() {
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("base")} onStart={() => start("base")}
-              run={runRepo === "lucaskerim123/V1-vercel-base" ? run : null} runRepo={runRepo} handoff={handoff} drafts={data.base.drafts||[]} connected={masterConnected} />}
+              run={runRepo === "lucaskerim123/V1-vercel-base" ? run : null} runRepo={runRepo} handoff={handoff} drafts={data.base.drafts||[]} connected={masterConnected} onChanged={()=>load(session,true)} />}
             {tab === "engine" && <Composer type="engine" releases={data.engine.releases||[]} session={session} {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("engine")} onStart={() => start("engine")}
-              run={runRepo === "lucaskerim123/V1-vercel-engine" ? run : null} runRepo={runRepo} handoff={handoff} drafts={data.engine.drafts||[]} connected={masterConnected} />}
+              run={runRepo === "lucaskerim123/V1-vercel-engine" ? run : null} runRepo={runRepo} handoff={handoff} drafts={data.engine.drafts||[]} connected={masterConnected} onChanged={()=>load(session,true)} />}
             {tab === "activity" && <MonitoringPage releases={allReleases} run={run} connected={masterConnected} session={session} />}
             {tab === "operations" && <OperationsWorkspace session={session} />}
             {tab === "repositories" && <RepositoriesPage data={data} session={session} onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }} />}
