@@ -609,7 +609,12 @@ async function operationsGithubText(path:string){
  const token=required("ORBITFS_RELEASE_DISPATCH_TOKEN");
  const response=await fetch("https://api.github.com"+path,{headers:{accept:"application/vnd.github+json",authorization:"Bearer "+token,"x-github-api-version":process.env.GITHUB_API_VERSION||"2022-11-28"},cache:"no-store",redirect:"follow"});
  const text=await response.text();
- if(!response.ok)throw new Error("GitHub API returned HTTP "+response.status+".");
+ if(response.status===404&&/\/actions\/jobs\/\d+\/logs(?:\?|$)/.test(path))return "";
+ if(!response.ok){
+  let detail="";
+  try{const body=JSON.parse(text);detail=String(body?.message||"")}catch{}
+  throw new Error("GitHub API returned HTTP "+response.status+(detail?" · "+detail:"")+" for "+path+".");
+ }
  return text;
 }
 function cleanOperationLogLine(line:string){
@@ -648,8 +653,20 @@ async function operationsRunDetail(cfg:(typeof OPERATIONS_REPOS)[OperationsSyste
  const jobsResult=await github("/repos/"+cfg.repo+"/actions/runs/"+run.id+"/jobs?per_page=100");
  const jobs=await Promise.all((jobsResult?.jobs||[]).map(async(job:any)=>{
   let failure:any=null,logTail="",logError="";
-  try{const logs=await operationsGithubText("/repos/"+cfg.repo+"/actions/jobs/"+job.id+"/logs");const lines=logs.split(/\r?\n/).filter(Boolean);logTail=lines.slice(-250).join("\n");if(job.conclusion==="failure")failure=extractOperationFailure(logs)}
-  catch(error:any){logError=error?.message||"Unable to retrieve GitHub job logs."}
+  if(job.status==="completed"){
+   try{
+    const logs=await operationsGithubText("/repos/"+cfg.repo+"/actions/jobs/"+job.id+"/logs");
+    if(logs){
+     const lines=logs.split(/\r?\n/).filter(Boolean);
+     logTail=lines.slice(-250).join("\n");
+     if(job.conclusion==="failure")failure=extractOperationFailure(logs);
+    }else{
+     logError="GitHub has not exposed the final job log yet.";
+    }
+   }catch(error:any){logError=error?.message||"Unable to retrieve GitHub job logs."}
+  }else{
+   logTail=(job.steps||[]).map((s:any)=>`${s.status==="completed"?(s.conclusion==="success"?"✓":s.conclusion==="failure"?"✕":"•"):"…"} ${s.name} · ${s.status}${s.conclusion?" · "+s.conclusion:""}`).join("\n");
+  }
   if(job.conclusion==="failure"&&!failure)failure=fallbackOperationFailure(job,logTail);
   return {id:job.id,name:job.name,status:job.status,conclusion:job.conclusion,started_at:job.started_at,completed_at:job.completed_at,html_url:job.html_url,steps:(job.steps||[]).map((s:any)=>({name:s.name,status:s.status,conclusion:s.conclusion,started_at:s.started_at,completed_at:s.completed_at})),failure,logTail,logError};
  }));
