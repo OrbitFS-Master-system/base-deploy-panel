@@ -82,6 +82,7 @@ export function OperationsWorkspace({session}:{session:any}){
     const s=data.systems?.[system.key]||{};
     const run=s.run;
     const passed=run?.status==="completed"&&run?.conclusion==="success"&&run?.head_sha===s.currentSha;
+    const productionCurrent=!!s.productionCurrent;
     const isCollapsed=!!collapsed[system.key];
     const isConsoleOpen=consoleOpen[system.key]!==false;
     const scan=scans[system.key];
@@ -98,7 +99,7 @@ export function OperationsWorkspace({session}:{session:any}){
        <div className="orbit-tech-stat"><span>Main commit</span><strong className="font-mono">{s.currentSha?.slice(0,12)||"—"}</strong></div>
        <div className="orbit-tech-stat"><span>CI run</span><strong>{run?"#"+run.run_number:"No run"}</strong></div>
        <div className="orbit-tech-stat"><span>CI gate</span><strong>{passed?"Exact commit passed":"Not ready"}</strong></div>
-       <div className="orbit-tech-stat"><span>Latest deployment</span><strong>{s.latestDeployment?"#"+s.latestDeployment.run_number:"None"}</strong></div>
+       <div className="orbit-tech-stat"><span>Production state</span><strong>{productionCurrent?"Current":s.latestDeployment?"Update pending":"Not deployed"}</strong></div>
       </div>
 
       <div className="grid gap-0 lg:grid-cols-2">
@@ -113,14 +114,15 @@ export function OperationsWorkspace({session}:{session:any}){
        </div>
        <div className="p-4">
         <div className="flex items-start justify-between gap-3">
-         <div><p className="text-xs font-semibold">Production deployment</p><p className="mt-1 text-[10px] leading-5 text-muted-foreground">{passed?"Ready — exact current main commit passed Scan & Prepare.":"Blocked until the exact current main commit passes Scan & Prepare."}</p></div>
+         <div><p className="text-xs font-semibold">Production deployment</p><p className="mt-1 text-[10px] leading-5 text-muted-foreground">{productionCurrent?"Current main is already deployed. No deployment is needed.":passed?"Ready — exact current main commit passed Scan & Prepare.":"Blocked until the exact current main commit passes Scan & Prepare."}</p></div>
          <div className="flex flex-wrap justify-end gap-2">
-          <button className="button-primary" onClick={()=>action(system.key,"deploy")} disabled={!!busy||!passed}>{busy===system.key+"deploy"?<Loader2 size={13} className="animate-spin"/>:<Zap size={13}/>}Deploy</button>
+          <button className="button-primary" onClick={()=>action(system.key,"deploy")} disabled={!!busy||!passed||productionCurrent}>{busy===system.key+"deploy"?<Loader2 size={13} className="animate-spin"/>:<Zap size={13}/>}Deploy</button>
           <button className="button-secondary border-red-400/30 text-red-200" onClick={()=>action(system.key,"override-deploy")} disabled={!!busy}><AlertTriangle size={13}/>Override</button>
          </div>
         </div>
        </div>
       </div>
+      {productionCurrent&&<div className="border-t border-emerald-400/20 bg-emerald-400/5 px-4 py-3 text-[10px] text-emerald-100"><b>Production is current.</b> The latest main commit <code>{s.currentSha?.slice(0,12)}</code> matches the last successful production deployment. Re-deploy is not required.</div>}
 
       <div className="border-t">
        <button className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/20" onClick={()=>setConsoleOpen(v=>({...v,[system.key]:!isConsoleOpen}))}>
@@ -148,11 +150,11 @@ export function OperationsWorkspace({session}:{session:any}){
 
       <div className="border-t">
        <button className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/20" onClick={()=>scan?setScanOpen(v=>({...v,[system.key]:!v[system.key]})):loadScan(system.key)} disabled={busy===system.key+"scan"}>
-        <div className="flex items-center gap-2"><FileCode2 size={14} className="text-primary"/><div><p className="text-[10px] font-bold tracking-[.12em]">REPOSITORY CHANGE SCAN</p><p className="mt-1 text-[9px] text-muted-foreground">Compare current main against the last successful CI baseline.</p></div></div>
+        <div className="flex items-center gap-2"><FileCode2 size={14} className="text-primary"/><div><p className="text-[10px] font-bold tracking-[.12em]">REPOSITORY CHANGE SCAN</p><p className="mt-1 text-[9px] text-muted-foreground">Compare current main against the last successful production deployment.</p></div></div>
         <div className="flex items-center gap-2">{busy===system.key+"scan"?<Loader2 size={14} className="animate-spin"/>:scan&&<Pill text={scan.updateAvailable?`${scan.changedFileCount} FILES`:"CURRENT"}/>} {scanOpen[system.key]?<ChevronDown size={14}/>:<ChevronRight size={14}/>}</div>
        </button>
        {scan&&scanOpen[system.key]&&<div className="border-t p-3">
-        <div className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4"><div className="orbit-tech-stat"><span>Current</span><strong className="font-mono">{scan.currentSha?.slice(0,12)||"—"}</strong></div><div className="orbit-tech-stat"><span>Baseline</span><strong className="font-mono">{scan.baselineSha?.slice(0,12)||"—"}</strong></div><div className="orbit-tech-stat"><span>Commits</span><strong>{scan.commitCount}</strong></div><div className="orbit-tech-stat"><span>Changed files</span><strong>{scan.changedFileCount}</strong></div></div>
+        <div className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4"><div className="orbit-tech-stat"><span>Current</span><strong className="font-mono">{scan.currentSha?.slice(0,12)||"—"}</strong></div><div className="orbit-tech-stat"><span>Production baseline</span><strong className="font-mono">{scan.baselineSha?.slice(0,12)||"—"}</strong></div><div className="orbit-tech-stat"><span>Commits</span><strong>{scan.commitCount}</strong></div><div className="orbit-tech-stat"><span>Changed files</span><strong>{scan.changedFileCount}</strong></div></div>
         {(scan.commits||[]).length>0&&<div className="mt-3 overflow-hidden rounded-lg border"><div className="orbit-subhead">COMMITS <span>{scan.commits.length}</span></div>{scan.commits.slice(0,30).map((c:any)=><div className="orbit-change-row" key={c.sha}><code>{c.sha.slice(0,7)}</code><span>{c.message}</span></div>)}</div>}
         {(scan.changedFiles||[]).length>0&&<div className="mt-3 max-h-80 overflow-auto rounded-lg border"><div className="orbit-subhead sticky top-0">CHANGED FILES <span>{scan.changedFiles.length}</span></div>{scan.changedFiles.map((f:any)=><div className="orbit-file-row" key={f.path}><span>{f.status}</span><code>{f.path}</code><span>{f.size??"—"}</span></div>)}</div>}
        </div>}
