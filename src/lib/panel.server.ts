@@ -640,16 +640,20 @@ function fallbackOperationFailure(job:any,logTail:string){
  return {error:unique[unique.length-1],preceding:[],lines:unique};
 }
 async function operationsRunDetail(cfg:(typeof OPERATIONS_REPOS)[OperationsSystem]){
- const [ciRows,deployRows,ref]=await Promise.all([
+ const [ciRows,deployRows,deploySuccessRows,ref]=await Promise.all([
   github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.ci+"/runs?branch=main&per_page=1"),
   github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&per_page=1"),
+  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&status=success&per_page=1"),
   github("/repos/"+cfg.repo+"/git/ref/heads/main"),
  ]);
  const ciRun=ciRows?.workflow_runs?.[0]||null;
  const deployRun=deployRows?.workflow_runs?.[0]||null;
+ const deployedRun=deploySuccessRows?.workflow_runs?.[0]||null;
  const run=[ciRun,deployRun].filter(Boolean).find((x:any)=>x.status!=="completed")||ciRun||deployRun||null;
  const currentSha=String(ref?.object?.sha||"");
- if(!run)return {repo:cfg.repo,label:cfg.label,currentSha,run:null,latestDeployment:cleanOperationsRun(deployRun),jobs:[],failure:null,chatPrompt:null,monitoring:"Workflow"};
+ const deployedSha=String(deployedRun?.head_sha||"");
+ const productionCurrent=!!currentSha&&!!deployedSha&&currentSha===deployedSha;
+ if(!run)return {repo:cfg.repo,label:cfg.label,currentSha,deployedSha,productionCurrent,run:null,latestDeployment:cleanOperationsRun(deployedRun),latestDeploymentAttempt:cleanOperationsRun(deployRun),jobs:[],failure:null,chatPrompt:null,monitoring:"Workflow"};
  const jobsResult=await github("/repos/"+cfg.repo+"/actions/runs/"+run.id+"/jobs?per_page=100");
  const jobs=await Promise.all((jobsResult?.jobs||[]).map(async(job:any)=>{
   let failure:any=null,logTail="",logError="";
@@ -683,7 +687,7 @@ async function operationsRunDetail(cfg:(typeof OPERATIONS_REPOS)[OperationsSyste
   "Captured error/output:",...failure.lines,"",
   "Trace the root cause in the repository, fix the implementation rather than masking the failure, and run the relevant validation/build checks. Do not deploy automatically.",
  ].join("\n"):null;
- return {repo:cfg.repo,label:cfg.label,currentSha,run:cleanOperationsRun(run),ciRun:cleanOperationsRun(ciRun),deployRun:cleanOperationsRun(deployRun),latestDeployment:cleanOperationsRun(deployRun),jobs,failure,chatPrompt,monitoring:run.name||"Workflow"};
+ return {repo:cfg.repo,label:cfg.label,currentSha,deployedSha,productionCurrent,run:cleanOperationsRun(run),ciRun:cleanOperationsRun(ciRun),deployRun:cleanOperationsRun(deployRun),latestDeployment:cleanOperationsRun(deployedRun),latestDeploymentAttempt:cleanOperationsRun(deployRun),jobs,failure,chatPrompt,monitoring:run.name||"Workflow"};
 }
 
 export const getOperationsState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
@@ -709,11 +713,13 @@ export const runOperation=createServerFn({method:"POST"}).handler(async({data}:{
  if(!["ci","deploy","override-deploy"].includes(action))throw new Error("Unknown Operations action");
  const workflow=action==="ci"?cfg.ci:cfg.deploy;
  if(action==="deploy"){
-  const [latest,ref]=await Promise.all([
+  const [latest,latestDeploy,ref]=await Promise.all([
    github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.ci+"/runs?branch=main&per_page=1"),
+   github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&status=success&per_page=1"),
    github("/repos/"+cfg.repo+"/git/ref/heads/main"),
   ]);
-  const latestRun=latest?.workflow_runs?.[0],mainSha=String(ref?.object?.sha||"");
+  const latestRun=latest?.workflow_runs?.[0],deployedRun=latestDeploy?.workflow_runs?.[0],mainSha=String(ref?.object?.sha||"");
+  if(deployedRun?.head_sha===mainSha)throw new Error("No deployment needed. The latest main commit is already deployed to production.");
   if(!latestRun||latestRun.status!=="completed"||latestRun.conclusion!=="success"||latestRun.head_sha!==mainSha)throw new Error("Deploy is blocked until the current main commit has a successful CI/preflight run. A CI run for an older commit cannot be reused.");
  }
  const startedAt=Date.now();
@@ -739,11 +745,12 @@ export const getOperationsScan=createServerFn({method:"POST"}).handler(async({da
  const ref=await github("/repos/"+cfg.repo+"/git/ref/heads/main");
  const currentSha=String(ref?.object?.sha||"");
  if(!currentSha)throw new Error("Unable to resolve main branch for "+cfg.repo+".");
- const [ciSuccess,deployAny]=await Promise.all([
+ const [deploySuccess,ciSuccess]=await Promise.all([
+  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&status=success&per_page=1"),
   github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.ci+"/runs?branch=main&status=success&per_page=1"),
-  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&per_page=1"),
  ]);
- const baselineSha=ciSuccess?.workflow_runs?.[0]?.head_sha||deployAny?.workflow_runs?.[0]?.head_sha||null;
+ const deployedRun=deploySuccess?.workflow_runs?.[0]||null;
+ const baselineSha=deployedRun?.head_sha||ciSuccess?.workflow_runs?.[0]?.head_sha||null;
  let commits:any[]=[],changedFiles:any[]=[];
  if(baselineSha&&baselineSha!==currentSha){
   commits=await operationsAllCompareCommits(cfg.repo,baselineSha,currentSha);
@@ -753,5 +760,5 @@ export const getOperationsScan=createServerFn({method:"POST"}).handler(async({da
   for(const path of new Set([...baseMap.keys(),...currentMap.keys()])){const before:any=baseMap.get(path),after:any=currentMap.get(path);if(!before)changedFiles.push({path,status:"added",sha:after.sha,size:after.size??null});else if(!after)changedFiles.push({path,status:"deleted",sha:null,size:null});else if(before.sha!==after.sha||before.mode!==after.mode)changedFiles.push({path,status:"modified",sha:after.sha,size:after.size??null})}
   changedFiles.sort((a,b)=>a.path.localeCompare(b.path));
  }
- return {key:data.system,label:cfg.label,repo:cfg.repo,branch:"main",currentSha,baselineSha,updateAvailable:currentSha!==baselineSha,commits:commits.map((c:any)=>({sha:c.sha,html_url:c.html_url,message:String(c.commit?.message||"").split("\n")[0],author:c.commit?.author?.name||c.author?.login||"Unknown",date:c.commit?.author?.date||c.commit?.committer?.date||null})).reverse(),commitCount:commits.length,changedFiles,changedFileCount:changedFiles.length,completeFileScan:true,checkedAt:new Date().toISOString()};
+ return {key:data.system,label:cfg.label,repo:cfg.repo,branch:"main",currentSha,baselineSha,baselineSource:deployedRun?"production-deployment":"successful-ci",productionCurrent:!!deployedRun&&currentSha===deployedRun.head_sha,updateAvailable:currentSha!==baselineSha,commits:commits.map((c:any)=>({sha:c.sha,html_url:c.html_url,message:String(c.commit?.message||"").split("\n")[0],author:c.commit?.author?.name||c.author?.login||"Unknown",date:c.commit?.author?.date||c.commit?.committer?.date||null})).reverse(),commitCount:commits.length,changedFiles,changedFileCount:changedFiles.length,completeFileScan:true,checkedAt:new Date().toISOString()};
 });
