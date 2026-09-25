@@ -196,6 +196,78 @@ export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:
  return {releases:releases?.releases||[],drafts:releaseDrafts,channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
 });
 
+
+export const saveReleaseDraft=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;draftId?:string|null;type:"base"|"engine";version:string;channel:string;notes?:string;components?:string[];minimumBaseVersion?:string;protocol?:string;changelogTemplate?:string;changelogDraft?:string;sourceSha?:string|null}})=>{
+ const actor=readSession(data.token);
+ const version=String(data.version||"").trim();
+ if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
+ const channel=normalizeChannel(data.channel||"stable");
+ const releaseType=data.type==="base"?"base":"update";
+ const repo=data.type==="base"?BASE_REPO:ENGINE_REPO;
+ const ref=data.type==="base"?BASE_REF:ENGINE_REF;
+ const components=data.type==="base"?["base"]:[...new Set((data.components||[]).map(x=>String(x).trim().toLowerCase()).filter(x=>["base","apex","mcp","studio"].includes(x)))];
+ if(data.type==="engine"&&!components.length)throw new Error("Select at least one Update component before saving.");
+ const expectedTemplate=data.type==="base"?"base_deployment_log":"update_changelog";
+ const template=String(data.changelogTemplate||expectedTemplate);
+ if(template!==expectedTemplate)throw new Error("Invalid release document template for this release type.");
+ const inputs={
+   notes:String(data.notes||"").trim(),
+   components,
+   minimumBaseVersion:data.type==="engine"?String(data.minimumBaseVersion||"").trim():null,
+   protocol:data.type==="engine"?String(data.protocol||"").trim():null,
+   changelogTemplate:template,
+   changelogDraft:String(data.changelogDraft||""),
+ };
+ const sb=authClient();
+ if(data.draftId){
+   const {data:existing,error:readError}=await sb.from("panel_release_drafts").select("*").eq("id",data.draftId).single();
+   if(readError||!existing)throw new Error("Release draft was not found.");
+   if(["building","handed_off"].includes(String(existing.status)))throw new Error("This Stage 1 draft is locked because it is building or has already been handed off.");
+   if(existing.archived_at)throw new Error("Restore the draft before editing it.");
+   const {data:draft,error}=await sb.from("panel_release_drafts").update({
+     version,channel,source_repo:repo,source_ref:ref,source_sha:data.sourceSha||existing.source_sha||null,
+     status:"draft",inputs,updated_at:new Date().toISOString()
+   }).eq("id",data.draftId).select("*").single();
+   if(error)throw new Error(error.code==="23505"?"A Stage 1 draft already exists for this type, version and channel.":"Unable to update release draft: "+error.message);
+   return {draft,created:false};
+ }
+ const {data:draft,error}=await sb.from("panel_release_drafts").insert({
+   release_type:releaseType,version,channel,source_repo:repo,source_ref:ref,source_sha:data.sourceSha||null,
+   status:"draft",inputs,created_by:actor.email||actor.id
+ }).select("*").single();
+ if(error)throw new Error(error.code==="23505"?"A Stage 1 draft already exists for this type, version and channel.":"Unable to create release draft: "+error.message);
+ return {draft,created:true};
+});
+
+export const setReleaseDraftArchived=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;draftId:string;archived:boolean}})=>{
+ readSession(data.token);
+ const sb=authClient();
+ const {data:existing,error:readError}=await sb.from("panel_release_drafts").select("*").eq("id",data.draftId).single();
+ if(readError||!existing)throw new Error("Release draft was not found.");
+ if(existing.status==="building")throw new Error("A running build draft cannot be archived.");
+ if(existing.status==="handed_off")throw new Error("A handed-off Stage 1 draft is retained as immutable workflow history.");
+ const archived=Boolean(data.archived);
+ const {data:draft,error}=await sb.from("panel_release_drafts").update({
+   status:archived?"archived":"draft",
+   archived_at:archived?new Date().toISOString():null,
+   updated_at:new Date().toISOString()
+ }).eq("id",data.draftId).select("*").single();
+ if(error)throw new Error("Unable to "+(archived?"archive":"restore")+" release draft: "+error.message);
+ return {draft};
+});
+
+export const deleteReleaseDraft=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;draftId:string}})=>{
+ const actor=readSession(data.token);
+ if(!["owner","admin"].includes(String(actor.role||"").toLowerCase()))throw new Error("Admin access required to permanently delete a Stage 1 draft.");
+ const sb=authClient();
+ const {data:existing,error:readError}=await sb.from("panel_release_drafts").select("*").eq("id",data.draftId).single();
+ if(readError||!existing)throw new Error("Release draft was not found.");
+ if(["building","handed_off"].includes(String(existing.status)))throw new Error("Building or handed-off drafts cannot be deleted.");
+ const {error}=await sb.from("panel_release_drafts").delete().eq("id",data.draftId);
+ if(error)throw new Error("Unable to delete release draft: "+error.message);
+ return {ok:true,id:data.draftId};
+});
+
 export const getReleaseLifecycleEvents=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;limit?:number}})=>{
  readSession(data.token);
  const limit=Math.min(500,Math.max(1,Number(data.limit||200)));
