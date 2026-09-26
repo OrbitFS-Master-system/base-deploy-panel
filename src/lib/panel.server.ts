@@ -8,7 +8,7 @@ const BASE_WORKER_REPO=process.env.BASE_RELEASE_WORKER_REPO||"lucaskerim123/Dev-
 const BASE_WORKER_REF=process.env.BASE_RELEASE_WORKER_REF||"main";
 const ENGINE_REPO=process.env.ENGINE_RELEASE_REPO||"lucaskerim123/V1-vercel-engine";
 const ENGINE_REF=process.env.ENGINE_RELEASE_REF||"UPDATE_RELEASE";
-const BASE_WORKFLOW=process.env.BASE_RELEASE_WORKFLOW||"package-base-release.yml";
+const BASE_WORKFLOW=process.env.BASE_RELEASE_WORKER_WORKFLOW||"package-base-release.yml";
 const ENGINE_WORKFLOW=process.env.ENGINE_RELEASE_WORKFLOW||"publish-engine-release.yml";
 
 const required=(name:string)=>{const v=process.env[name];if(!v)throw new Error(`Missing server environment variable: ${name}`);return v};
