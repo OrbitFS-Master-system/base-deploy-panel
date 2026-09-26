@@ -424,6 +424,8 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
    ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["base","apex","mcp","studio"].includes(x)))]
    : ["base"];
 
+ const dispatchFileLimit = data.type === "base" ? 100 : detectedFiles.length;
+ const dispatchFiles = initialRelease ? [] : detectedFiles.slice(0, dispatchFileLimit);
  const releaseRecord = {
   format: "orbitfs-release-record-v1",
   releaseType: data.type === "base" ? "base" : "update",
@@ -436,7 +438,8 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   detectedSourceChanges: detectedFiles.length,
   inspectionMode: initialRelease ? "full_snapshot" : "compare",
   initialRelease,
-  changedFiles: detectedFiles,
+  changedFiles: dispatchFiles,
+  changedFilesTruncated: detectedFiles.length > dispatchFiles.length,
   components: selectedComponents,
   minimumBaseVersion: data.type === "engine" ? (data.minimumBaseVersion || "1.0.0") : null,
   minimumDeployerProtocol: data.type === "engine" ? (data.protocol || "1") : null,
@@ -450,11 +453,13 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   version,
   channel,
   notes:generatedChangelog,
-  changed_files:JSON.stringify(detectedFiles),
+  changed_files:JSON.stringify(dispatchFiles),
   previous_source_commit:previousSourceCommit,
  };
  if(data.type==="base") Object.assign(inputs,{release_record:JSON.stringify(releaseRecord),source_repo:repo,source_ref:ref,source_sha:head});
  if(data.type==="engine")Object.assign(inputs,{base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
+ const dispatchBytes=Buffer.byteLength(JSON.stringify({ref:workerRef,inputs}),"utf8");
+ if(dispatchBytes>50000)throw new Error(`Release control payload is still too large for GitHub Actions (${dispatchBytes} bytes). Shorten the release notes and inspect again.`);
  const releaseType=data.type==="base"?"base":"update";
  const sb=authClient();
  const {data:existing,error:existingError}=await sb.from("panel_release_drafts").select("*").eq("release_type",releaseType).eq("version",version).eq("channel",channel).maybeSingle();
