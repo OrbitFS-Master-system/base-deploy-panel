@@ -485,8 +485,15 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const missingDetectedComponents=detectedComponents.filter((component:string)=>!selectedComponents.includes(component));
  if(missingDetectedComponents.length)throw new Error(`Stage 1 targets do not cover detected Update changes: ${missingDetectedComponents.join(", ")}. Re-inspect the Update source before building.`);
 
+ const compactDispatchFile=(file:any)=>({
+  filename:String(file?.filename||""),
+  status:String(file?.status||"modified"),
+  additions:Number(file?.additions||0),
+  deletions:Number(file?.deletions||0),
+  changes:Number(file?.changes||0),
+ });
  const dispatchFileLimit = data.type === "base" ? 100 : detectedFiles.length;
- const dispatchFiles = initialRelease ? [] : detectedFiles.slice(0, dispatchFileLimit);
+ const dispatchFiles = initialRelease ? [] : detectedFiles.slice(0, dispatchFileLimit).map(compactDispatchFile);
  const releaseRecord = {
   format: "orbitfs-release-record-v1",
   releaseType: data.type === "base" ? "base" : "update",
@@ -522,14 +529,19 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  };
  if(data.type==="base") Object.assign(inputs,{release_record:JSON.stringify(releaseRecord),source_repo:repo,source_ref:ref,source_sha:head});
  if(data.type==="engine")Object.assign(inputs,{base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
- const dispatchBytes=Buffer.byteLength(JSON.stringify({ref:workerRef,inputs}),"utf8");
- if(dispatchBytes>50000)throw new Error(`Release control payload is still too large for GitHub Actions (${dispatchBytes} bytes). Shorten the release notes and inspect again.`);
+ const dispatchPayload=JSON.stringify({ref:workerRef,inputs});
+ const dispatchBytes=Buffer.byteLength(dispatchPayload,"utf8");
+ if(dispatchBytes>50000){
+  const fieldBytes=Object.fromEntries(Object.entries(inputs).map(([key,value])=>[key,Buffer.byteLength(String(value??""),"utf8")]));
+  const largest=Object.entries(fieldBytes).sort((a:any,b:any)=>Number(b[1])-Number(a[1])).slice(0,3).map(([key,size])=>`${key}=${size}B`).join(", ");
+  throw new Error(`Release control payload is too large for GitHub Actions (${dispatchBytes} bytes; largest inputs: ${largest}). Re-inspect so Dev Panel can regenerate a compact control payload.`);
+ }
  const releaseType=data.type==="base"?"base":"update";
  const sb=authClient();
  const {data:existing,error:existingError}=await sb.from("panel_release_drafts").select("*").eq("release_type",releaseType).eq("version",version).eq("channel",channel).maybeSingle();
  if(existingError)throw new Error("Unable to resolve release draft: "+existingError.message);
  if(existing&&["archived","rejected"].includes(String(existing.status)))throw new Error("This release draft is closed. Use a new version instead of creating another attempt.");
- const inputSnapshot={type:data.type,version,channel,notes:data.notes.trim(),changelogDraft:generatedChangelog,components:selectedComponents,minimumBaseVersion:data.minimumBaseVersion||null,protocol:data.protocol||null,changelogTemplate:data.changelogTemplate,sourceSha:head,changedFiles:detectedFiles};
+ const inputSnapshot={type:data.type,version,channel,notes:data.notes.trim(),changelogDraft:generatedChangelog,components:selectedComponents,minimumBaseVersion:data.minimumBaseVersion||null,protocol:data.protocol||null,changelogTemplate:data.changelogTemplate,sourceSha:head,changedFiles:detectedFiles.map(compactDispatchFile),detectedSourceChanges:detectedFiles.length,detectedComponents};
  let draft:any=existing;
  if(!draft){
    const {data:created,error:createError}=await sb.from("panel_release_drafts").insert({release_type:releaseType,version,channel,source_repo:repo,source_ref:ref,source_sha:head,status:"draft",inputs:inputSnapshot,created_by:actor.email||actor.id}).select("*").single();
