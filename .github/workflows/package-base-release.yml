@@ -300,7 +300,7 @@ jobs:
             releaseNotes:fs.readFileSync("release-package/changelog.md","utf8"),
             releaseInfo,
             components:["base"],
-            projectSettings:{framework:"sveltekit"},
+            projectSettings:{framework:"sveltekit",installCommand:"npm ci",buildCommand:"npm run build"},
             files
           };
           fs.writeFileSync("release-package/manifest.json",JSON.stringify(manifest));
