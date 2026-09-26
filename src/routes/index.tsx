@@ -198,8 +198,10 @@ function Index() {
       setNotice(r.runId ? `Release sent · GitHub workflow run #${r.runId} started.` : "Release sent to GitHub. Waiting for the workflow run to appear.");
       try { await load(session, true); } catch {}
       setTab(type === "base" ? "base" : "engine");
+      return true;
     } catch (x: any) {
       setError(x.message || "Unable to start release.");
+      return false;
     } finally { setBusy(""); }
   };
 
