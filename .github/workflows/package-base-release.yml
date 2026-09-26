@@ -74,6 +74,7 @@ jobs:
         with:
           repository: ${{ inputs.source_repo }}
           ref: ${{ inputs.source_sha }}
+          token: ${{ secrets.ORBITFS_RELEASE_DISPATCH_TOKEN || github.token }}
           fetch-depth: 0
           path: base-source
 
