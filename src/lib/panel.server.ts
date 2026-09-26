@@ -686,9 +686,11 @@ async function licenseMaster(path:string,init:RequestInit={}){
 
 const OPERATIONS_CI_WORKFLOW=process.env.OPERATIONS_CI_WORKFLOW||"ci.yml";
 const OPERATIONS_DEPLOY_WORKFLOW=process.env.OPERATIONS_DEPLOY_WORKFLOW||"production-deploy.yml";
+const LICENSE_MANAGER_QUICK_DEPLOY_WORKFLOW=process.env.LICENSE_MANAGER_QUICK_DEPLOY_WORKFLOW||"quick-deploy.yml";
+const BILLING_STORE_QUICK_DEPLOY_WORKFLOW=process.env.BILLING_STORE_QUICK_DEPLOY_WORKFLOW||"quick-redesign-deploy.yml";
 const OPERATIONS_REPOS={
- licenseManager:{repo:process.env.LICENSE_MANAGER_REPO||"lucaskerim123/Custom-licence-manager",label:"Custom License Manager",ci:OPERATIONS_CI_WORKFLOW,deploy:OPERATIONS_DEPLOY_WORKFLOW},
- billingStore:{repo:process.env.BILLING_STORE_REPO||"lucaskerim123/V2_Billing_Store",label:"V2 Billing Store",ci:OPERATIONS_CI_WORKFLOW,deploy:OPERATIONS_DEPLOY_WORKFLOW},
+ licenseManager:{repo:process.env.LICENSE_MANAGER_REPO||"lucaskerim123/Custom-licence-manager",label:"Custom License Manager",ci:OPERATIONS_CI_WORKFLOW,deploy:OPERATIONS_DEPLOY_WORKFLOW,quickDeploy:LICENSE_MANAGER_QUICK_DEPLOY_WORKFLOW},
+ billingStore:{repo:process.env.BILLING_STORE_REPO||"lucaskerim123/V2_Billing_Store",label:"V2 Billing Store",ci:OPERATIONS_CI_WORKFLOW,deploy:OPERATIONS_DEPLOY_WORKFLOW,quickDeploy:BILLING_STORE_QUICK_DEPLOY_WORKFLOW},
 } as const;
 
 type OperationsSystem=keyof typeof OPERATIONS_REPOS;
@@ -741,20 +743,25 @@ function fallbackOperationFailure(job:any,logTail:string){
  return {error:unique[unique.length-1],preceding:[],lines:unique};
 }
 async function operationsRunDetail(cfg:(typeof OPERATIONS_REPOS)[OperationsSystem]){
- const [ciRows,deployRows,deploySuccessRows,ref]=await Promise.all([
+ const [ciRows,deployRows,quickDeployRows,deploySuccessRows,quickDeploySuccessRows,ref]=await Promise.all([
   github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.ci+"/runs?branch=main&per_page=1"),
   github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&per_page=1"),
+  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.quickDeploy+"/runs?branch=main&per_page=1"),
   github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.deploy+"/runs?branch=main&status=success&per_page=1"),
+  github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.quickDeploy+"/runs?branch=main&status=success&per_page=1"),
   github("/repos/"+cfg.repo+"/git/ref/heads/main"),
  ]);
  const ciRun=ciRows?.workflow_runs?.[0]||null;
  const deployRun=deployRows?.workflow_runs?.[0]||null;
- const deployedRun=deploySuccessRows?.workflow_runs?.[0]||null;
- const run=[ciRun,deployRun].filter(Boolean).find((x:any)=>x.status!=="completed")||ciRun||deployRun||null;
+ const quickDeployRun=quickDeployRows?.workflow_runs?.[0]||null;
+ const successfulDeployments=[deploySuccessRows?.workflow_runs?.[0],quickDeploySuccessRows?.workflow_runs?.[0]].filter(Boolean).sort((a:any,b:any)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
+ const deployedRun=successfulDeployments[0]||null;
+ const candidates=[ciRun,deployRun,quickDeployRun].filter(Boolean).sort((a:any,b:any)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
+ const run=candidates.find((x:any)=>x.status!=="completed")||candidates[0]||null;
  const currentSha=String(ref?.object?.sha||"");
  const deployedSha=String(deployedRun?.head_sha||"");
  const productionCurrent=!!currentSha&&!!deployedSha&&currentSha===deployedSha;
- if(!run)return {repo:cfg.repo,label:cfg.label,currentSha,deployedSha,productionCurrent,run:null,latestDeployment:cleanOperationsRun(deployedRun),latestDeploymentAttempt:cleanOperationsRun(deployRun),jobs:[],failure:null,chatPrompt:null,monitoring:"Workflow"};
+ if(!run)return {repo:cfg.repo,label:cfg.label,currentSha,deployedSha,productionCurrent,run:null,latestDeployment:cleanOperationsRun(deployedRun),latestDeploymentAttempt:null,jobs:[],failure:null,chatPrompt:null,monitoring:"Workflow"};
  const jobsResult=await github("/repos/"+cfg.repo+"/actions/runs/"+run.id+"/jobs?per_page=100");
  const jobs=await Promise.all((jobsResult?.jobs||[]).map(async(job:any)=>{
   let failure:any=null,logTail="",logError="";
@@ -788,7 +795,8 @@ async function operationsRunDetail(cfg:(typeof OPERATIONS_REPOS)[OperationsSyste
   "Captured error/output:",...failure.lines,"",
   "Trace the root cause in the repository, fix the implementation rather than masking the failure, and run the relevant validation/build checks. Do not deploy automatically.",
  ].join("\n"):null;
- return {repo:cfg.repo,label:cfg.label,currentSha,deployedSha,productionCurrent,run:cleanOperationsRun(run),ciRun:cleanOperationsRun(ciRun),deployRun:cleanOperationsRun(deployRun),latestDeployment:cleanOperationsRun(deployedRun),latestDeploymentAttempt:cleanOperationsRun(deployRun),jobs,failure,chatPrompt,monitoring:run.name||"Workflow"};
+ const latestAttempt=[deployRun,quickDeployRun].filter(Boolean).sort((a:any,b:any)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime())[0]||null;
+ return {repo:cfg.repo,label:cfg.label,currentSha,deployedSha,productionCurrent,run:cleanOperationsRun(run),ciRun:cleanOperationsRun(ciRun),deployRun:cleanOperationsRun(deployRun),quickDeployRun:cleanOperationsRun(quickDeployRun),latestDeployment:cleanOperationsRun(deployedRun),latestDeploymentAttempt:cleanOperationsRun(latestAttempt),jobs,failure,chatPrompt,monitoring:run.name||"Workflow"};
 }
 
 export const getOperationsState=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string}})=>{
@@ -812,7 +820,7 @@ export const runOperation=createServerFn({method:"POST"}).handler(async({data}:{
  const cfg=operationsConfig(data.system);
  const action=String(data.action||"");
  if(!["ci","deploy","override-deploy"].includes(action))throw new Error("Unknown Operations action");
- const workflow=action==="ci"?cfg.ci:cfg.deploy;
+ const workflow=action==="ci"?cfg.ci:action==="override-deploy"?cfg.quickDeploy:cfg.deploy;
  if(action==="deploy"){
   const [latest,latestDeploy,ref]=await Promise.all([
    github("/repos/"+cfg.repo+"/actions/workflows/"+cfg.ci+"/runs?branch=main&per_page=1"),
