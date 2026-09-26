@@ -480,9 +480,11 @@ function buildChangelog(type: ReleaseType, data: any) {
   const files = data.files || [];
   const initialRelease = data.initialRelease === true;
   const initialUpdate = data.initialUpdate === true;
-  const visibleFiles = initialRelease ? [] : files.slice(0, 120);
+  const visibleFiles = (initialRelease||initialUpdate) ? [] : files.slice(0, 120);
   const fileLines = initialRelease
     ? `Full source snapshot: ${files.length} tracked files. The exact file inventory and SHA-256 values are recorded in the packaged Base manifest.`
+    : initialUpdate
+      ? `Initial Engine baseline snapshot: ${files.length} tracked files. The exact Engine inventory and SHA-256 values are recorded in the packaged Update manifest; the workflow control payload does not carry the full file list.`
     : files.length
       ? visibleFiles.map((f:any) => `• ${f.filename} (${f.status}, +${f.additions || 0} / -${f.deletions || 0})`).join("\n") + (files.length > visibleFiles.length ? `\n• … ${files.length-visibleFiles.length} additional changed files recorded in the release manifest.` : "")
       : "No source changes were detected against the previous published Base release.";
@@ -490,7 +492,7 @@ function buildChangelog(type: ReleaseType, data: any) {
   const changes = initialRelease
     ? `No previously published Base release exists in this channel. This initial Base deployment will package the complete current source snapshot (${files.length} tracked files).`
     : initialUpdate
-      ? `No previously published Update exists in this channel. Stage 1 is using the locked bootstrap baseline (${String(data.baseline?.sourceSha||"").slice(0,12)||"declared server-side"}) for first Update v${String(data.baseline?.initialReleaseVersion||data.version||"1.0.0")}. It detects ${files.length} changed source file${files.length===1?"":"s"} and targets ${(data.components||[]).map((x:string)=>x.toUpperCase()).join(", ")||"no component-specific paths"}.`
+      ? `No previously published Update exists in this channel. v${String(data.baseline?.initialReleaseVersion||data.version||"1.0.0")} is the locked Engine snapshot baseline at ${String(data.baseline?.sourceSha||data.head||"").slice(0,12)||"the inspected UPDATE_RELEASE SHA"}. It packages the current Engine state once; future releases compare against this published source SHA and contain only the newly detected change set.`
     : files.length
     ? `This ${base ? "deployment" : "update"} contains ${files.length} changed source file${files.length === 1 ? "" : "s"}.${base ? "" : ` The selected components are ${(data.components || []).map((x:string)=>x.toUpperCase()).join(", ") || "not specified"}.`}`
     : base
