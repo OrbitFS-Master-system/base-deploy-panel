@@ -62,8 +62,7 @@ function Index() {
 
   const load = async (s = session, silent = false) => {
     if (!s) return;
-    if (!silent) setLoading(true);
-    setError("");
+    if (!silent) { setLoading(true); setError(""); }
     try {
       const [base, engine] = await Promise.all([
         getPanelState({ data: { token: s.token, type: "base", channel } }),
@@ -107,10 +106,17 @@ function Index() {
         const r = await getReleaseRun({ data: { token: session.token, repo: runRepo, runId: run.id } });
         if (stopped) return;
         setRun({ ...r.run, jobs: r.jobs || [], failure: r.failure || null });
-        if (["success", "failure", "cancelled", "skipped"].includes(String(r.run?.conclusion || ""))) {
+        const conclusion=String(r.run?.conclusion || "");
+        if (["failure","cancelled"].includes(conclusion)) {
+          const detail=String(r.failure?.error || r.failure?.lines?.join("\n") || `Release workflow ${conclusion}.`).trim();
+          setError(detail);
+        }
+        if (["success", "failure", "cancelled", "skipped"].includes(conclusion)) {
           await load(session, true);
         }
-      } catch {}
+      } catch (x:any) {
+        if (!stopped) setError(x?.message || "Unable to read the release workflow state.");
+      }
     };
     poll();
     const timer = setInterval(poll, 3000);
@@ -128,7 +134,9 @@ function Index() {
           data: { token: session.token, type, version: runVersion, channel: runChannel }
         });
         if (!stopped && r.release) setHandoff(r.release);
-      } catch {}
+      } catch (x:any) {
+        if (!stopped) setError(x?.message || "Unable to read the License Manager handoff state.");
+      }
     };
     poll();
     const timer = setInterval(poll, 5000);
@@ -229,7 +237,7 @@ function Index() {
         <Sidebar tab={tab} setTab={setTab} activeRun={!!run && !run.conclusion} />
         <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 xl:px-8">
           <div className="mx-auto max-w-[1440px] space-y-4">
-            {error && <Alert tone="error" onClose={() => setError("")}>{error}</Alert>}
+            {error && <div className="sticky top-[80px] z-30"><Alert tone="error" onClose={() => setError("")}>{error}</Alert></div>}
             {notice && <Alert tone="success" onClose={() => setNotice("")}>{notice}</Alert>}
             {tab === "overview" && <Dashboard stats={stats} releases={allReleases} connected={masterConnected} run={run} channels={availableChannels}
               onBase={() => { resetComposer(); setTab("base"); }} onEngine={() => { resetComposer(); setTab("engine"); }}
