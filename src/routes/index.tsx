@@ -166,10 +166,15 @@ function Index() {
     setError(""); setNotice("");
     try {
       const r = await inspectSource({ data: { token: session.token, type, channel } });
+      const detectedComponents=type==="engine"&&Array.isArray(r.detectedComponents)?r.detectedComponents:[];
+      const resolvedMinBase=type==="engine"&&r.baseBaseline?.version?String(r.baseBaseline.version):minBase;
       setFiles(r.files || []);
       setCommits(r.commits || []);
-      setBaseline({ ...(r.baseline || {}), repo: r.repo, ref: r.ref, head: r.head, baseBaseline: r.baseBaseline || null });
-      if (type === "engine" && r.baseBaseline?.version) setMinBase(String(r.baseBaseline.version));
+      setBaseline({ ...(r.baseline || {}), repo: r.repo, ref: r.ref, head: r.head, baseBaseline: r.baseBaseline || null, inspectionMode:r.inspectionMode, initialUpdate:r.initialUpdate===true, detectedComponents });
+      if (type === "engine") {
+        if(r.baseBaseline?.version)setMinBase(resolvedMinBase);
+        setComponents(detectedComponents);
+      }
       setChangelogTemplate(type === "base" ? "base_deployment_log" : "update_changelog");
       setChangelogDraft(buildChangelog(type, {
         version,
@@ -177,18 +182,22 @@ function Index() {
         files: r.files || [],
         commits: r.commits || [],
         notes,
-        components,
-        minBase,
+        components:type==="engine"?detectedComponents:components,
+        minBase:resolvedMinBase,
         protocol,
         repo: r.repo,
         ref: r.ref,
         head: r.head,
         initialRelease: r.initialRelease === true,
+        initialUpdate: r.initialUpdate === true,
+        baseline:r.baseline||null,
       }));
       setReviewOpen(true);
       setNotice(r.initialRelease
         ? `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · initial Base snapshot · ${r.files.length} tracked files inspected.`
-        : `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected against published baseline.`);
+        : r.initialUpdate
+          ? `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · first Update baseline ${String(r.baseline?.sourceSha||"").slice(0,8)} · ${r.files.length} changed files · targets: ${detectedComponents.join(", ")||"none"}.`
+          : `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected against published Update baseline${type==="engine"&&detectedComponents.length?` · targets: ${detectedComponents.join(", ")}`:""}.`);
     } catch (x: any) {
       setError(x.message || "Unable to inspect source.");
     } finally { setBusy(""); }
@@ -468,6 +477,7 @@ function buildChangelog(type: ReleaseType, data: any) {
   const commits = (data.commits || []).map((c:any) => String(c.subject || c.message || "").trim()).filter(Boolean).slice(0, 20);
   const files = data.files || [];
   const initialRelease = data.initialRelease === true;
+  const initialUpdate = data.initialUpdate === true;
   const visibleFiles = initialRelease ? [] : files.slice(0, 120);
   const fileLines = initialRelease
     ? `Full source snapshot: ${files.length} tracked files. The exact file inventory and SHA-256 values are recorded in the packaged Base manifest.`
@@ -477,6 +487,8 @@ function buildChangelog(type: ReleaseType, data: any) {
   const commitLines = commits.length ? commits.map((s:string) => `• ${s}`).join("\n") : "No commits were returned for this source range.";
   const changes = initialRelease
     ? `No previously published Base release exists in this channel. This initial Base deployment will package the complete current source snapshot (${files.length} tracked files).`
+    : initialUpdate
+      ? `No previously published Update exists in this channel. Stage 1 is comparing UPDATE_RELEASE with its Git branch merge-base (${String(data.baseline?.sourceSha||"").slice(0,12)||"resolved server-side"}), detecting ${files.length} changed source file${files.length===1?"":"s"} and targeting ${(data.components||[]).map((x:string)=>x.toUpperCase()).join(", ")||"no component-specific paths"}.`
     : files.length
     ? `This ${base ? "deployment" : "update"} contains ${files.length} changed source file${files.length === 1 ? "" : "s"}.${base ? "" : ` The selected components are ${(data.components || []).map((x:string)=>x.toUpperCase()).join(", ") || "not specified"}.`}`
     : base
@@ -485,7 +497,8 @@ function buildChangelog(type: ReleaseType, data: any) {
   const checks = [
     "✓ Source checked",
     "✓ Change detection completed",
-    base ? "✓ Deployment package will be created" : "✓ Update package will be created",
+    base ? "✓ Deployment package will be created" : "✓ Update source baseline resolved server-side",
+    ...(!base?["✓ Update targets detected from changed paths","✓ Update package will be created"]:[]),
     "✓ Package integrity will be checked",
     "✓ License Master technical validation will run",
   ].join("\n");
