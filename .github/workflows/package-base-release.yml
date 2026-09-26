@@ -57,10 +57,68 @@ env:
   LICENSE_MASTER_URL: ${{ vars.LICENSE_MASTER_URL || 'https://incendiarynetworks.cc/api/v1' }}
 
 jobs:
+  base-validation:
+    name: Build Base validation gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify private Base checkout credential
+        shell: bash
+        env:
+          BASE_CHECKOUT_TOKEN: ${{ secrets.ORBITFS_RELEASE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_CHECKOUT_TOKEN" || {
+            echo "::error::Missing Dev Panel Actions secret ORBITFS_RELEASE_DISPATCH_TOKEN."
+            exit 1
+          }
+
+      - name: Enforce Base source contract
+        shell: bash
+        env:
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_REPO" = "lucaskerim123/V1-vercel-base" || { echo "::error::Base packaging is locked to lucaskerim123/V1-vercel-base."; exit 1; }
+          test "$SOURCE_REF" = "base-release" || { echo "::error::Base packaging is locked to base-release."; exit 1; }
+
+      - name: Checkout Base release branch
+        uses: actions/checkout@v4
+        with:
+          repository: lucaskerim123/V1-vercel-base
+          ref: base-release
+          token: ${{ secrets.ORBITFS_RELEASE_DISPATCH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Verify exact inspected Base source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          BRANCH="$(git branch --show-current)"
+          test "$BRANCH" = "base-release" || { echo "::error::Expected base-release checkout, got $BRANCH"; exit 1; }
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA" || {
+            echo "::error::base-release moved after Dev Panel inspection. Expected $EXPECTED_SHA, current head is $ACTUAL_SHA. Refresh and inspect again."
+            exit 1
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+
   package:
+    needs: base-validation
     outputs:
       release_id: ${{ steps.master-release.outputs.id }}
-    name: Build Base package and hand off
+    name: Package Base and hand off
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -120,15 +178,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: base-source/package-lock.json
-
-      - name: Install and validate Base source
-        working-directory: base-source
-        run: |
-          npm ci
-          npm run check
-          npm run build
 
       - name: Build authoritative customer database snapshot
         working-directory: base-source
