@@ -170,14 +170,16 @@ function Index() {
       const resolvedMinBase=type==="engine"&&r.baseBaseline?.version?String(r.baseBaseline.version):minBase;
       setFiles(r.files || []);
       setCommits(r.commits || []);
-      setBaseline({ ...(r.baseline || {}), repo: r.repo, ref: r.ref, head: r.head, baseBaseline: r.baseBaseline || null, inspectionMode:r.inspectionMode, initialUpdate:r.initialUpdate===true, detectedComponents });
+      const bootstrapVersion=r.initialUpdate?String(r.baseline?.initialReleaseVersion||r.baseline?.version||"").trim():"";
+      setBaseline({ ...(r.baseline || {}), repo: r.repo, ref: r.ref, head: r.head, baseBaseline: r.baseBaseline || null, inspectionMode:r.inspectionMode, initialUpdate:r.initialUpdate===true, detectedComponents, bootstrapVersion });
       if (type === "engine") {
         if(r.baseBaseline?.version)setMinBase(resolvedMinBase);
+        if(bootstrapVersion)setVersion(bootstrapVersion);
         setComponents(detectedComponents);
       }
       setChangelogTemplate(type === "base" ? "base_deployment_log" : "update_changelog");
       setChangelogDraft(buildChangelog(type, {
-        version,
+        version:type==="engine"&&r.initialUpdate&&bootstrapVersion?bootstrapVersion:version,
         channel,
         files: r.files || [],
         commits: r.commits || [],
@@ -196,7 +198,7 @@ function Index() {
       setNotice(r.initialRelease
         ? `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · initial Base snapshot · ${r.files.length} tracked files inspected.`
         : r.initialUpdate
-          ? `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · first Update baseline ${String(r.baseline?.sourceSha||"").slice(0,8)} · ${r.files.length} changed files · targets: ${detectedComponents.join(", ")||"none"}.`
+          ? `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · locked bootstrap baseline ${String(r.baseline?.sourceSha||"").slice(0,8)} → first Update v${bootstrapVersion||"1.0.0"} · ${r.files.length} changed files · targets: ${detectedComponents.join(", ")||"none"}.`
           : `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected against published Update baseline${type==="engine"&&detectedComponents.length?` · targets: ${detectedComponents.join(", ")}`:""}.`);
     } catch (x: any) {
       setError(x.message || "Unable to inspect source.");
@@ -488,7 +490,7 @@ function buildChangelog(type: ReleaseType, data: any) {
   const changes = initialRelease
     ? `No previously published Base release exists in this channel. This initial Base deployment will package the complete current source snapshot (${files.length} tracked files).`
     : initialUpdate
-      ? `No previously published Update exists in this channel. Stage 1 is comparing UPDATE_RELEASE with its Git branch merge-base (${String(data.baseline?.sourceSha||"").slice(0,12)||"resolved server-side"}), detecting ${files.length} changed source file${files.length===1?"":"s"} and targeting ${(data.components||[]).map((x:string)=>x.toUpperCase()).join(", ")||"no component-specific paths"}.`
+      ? `No previously published Update exists in this channel. Stage 1 is using the locked bootstrap baseline (${String(data.baseline?.sourceSha||"").slice(0,12)||"declared server-side"}) for first Update v${String(data.baseline?.initialReleaseVersion||data.version||"1.0.0")}. It detects ${files.length} changed source file${files.length===1?"":"s"} and targets ${(data.components||[]).map((x:string)=>x.toUpperCase()).join(", ")||"no component-specific paths"}.`
     : files.length
     ? `This ${base ? "deployment" : "update"} contains ${files.length} changed source file${files.length === 1 ? "" : "s"}.${base ? "" : ` The selected components are ${(data.components || []).map((x:string)=>x.toUpperCase()).join(", ") || "not specified"}.`}`
     : base
