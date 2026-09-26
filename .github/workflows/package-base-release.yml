@@ -329,8 +329,17 @@ jobs:
             --argjson changed_files "$(printf '%s' "$CONTROL_CHANGED_FILES" | jq -c '.')" \
             --argjson release_record "$(printf '%s' "$CONTROL_RELEASE_RECORD" | jq -c '.')" \
             '{product:$product,release_type:$release_type,version:$version,channel:$channel,source_repo:$source_repo,source_ref:$source_ref,source_sha:$source_sha,artifact_repo:$artifact_repo,artifact_name:$artifact_name,artifact_url:$artifact_url,checksum:$checksum,artifact_run_id:$artifact_run_id,notes:$notes,manifest:{schemaVersion:2,databaseSchemaVersion:$release_info.databaseSchemaVersion,databaseSchemaSha256:$release_info.databaseSchemaSha256,databaseSchemaPath:$release_info.databaseSchemaPath,databaseMigrationCount:$release_info.databaseMigrationCount,databaseLatestMigration:$release_info.databaseLatestMigration,releaseType:"base",product:"orbitfs_base",version:$version,channel:$channel,sourceCommit:$source_sha,artifactTag:$artifact_tag,releaseInfo:$release_info,changedFiles:$changed_files,releaseRecord:$release_record,title:"OrbitFS Base deployment",description:"Complete deployable OrbitFS Vercel base release packaged by Dev Panel"}}' > release-package/license-master-payload.json
-          response="$(curl --fail-with-body --silent --show-error -X POST "${LICENSE_MASTER_URL%/}/releases" -H "Authorization: Bearer $LICENSE_MASTER_API_TOKEN" -H "Content-Type: application/json" --data-binary @release-package/license-master-payload.json)"
-          release_id="$(jq -r '.release.id // empty' <<<"$response")"
+          response_file="$(mktemp)"
+          http_status="$(curl --silent --show-error -o "$response_file" -w '%{http_code}' -X POST "${LICENSE_MASTER_URL%/}/releases" -H "Authorization: Bearer $LICENSE_MASTER_API_TOKEN" -H "Content-Type: application/json" --data-binary @release-package/license-master-payload.json)"
+          response="$(cat "$response_file")"
+          rm -f "$response_file"
+          if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
+            echo "$response"
+            error_message="$(jq -r '.error // .message // .code // "License Manager release intake failed"' <<<"$response" 2>/dev/null || printf '%s' "$response")"
+            echo "::error::License Manager release intake failed (HTTP $http_status): $error_message"
+            exit 1
+          fi
+          release_id="$(jq -r '.release.id // .release_id // empty' <<<"$response")"
           test -n "$release_id" || { echo "$response"; echo "::error::License Manager did not return a release id"; exit 1; }
           echo "id=$release_id" >> "$GITHUB_OUTPUT"
 
