@@ -123,7 +123,7 @@ function Index() {
     let stopped = false;
     const poll = async () => {
       try {
-        const type: ReleaseType = runRepo === "lucaskerim123/V1-vercel-base" ? "base" : "engine";
+        const type: ReleaseType = runRepo === "lucaskerim123/Dev-panel" ? "base" : "engine";
         const r = await getReleaseHandoff({
           data: { token: session.token, type, version: runVersion, channel: runChannel }
         });
@@ -236,7 +236,7 @@ function Index() {
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
               onInspect={() => inspect("base")} onStart={() => start("base")}
-              run={runRepo === "lucaskerim123/V1-vercel-base" ? run : null} runRepo={runRepo} handoff={handoff} drafts={data.base.drafts||[]} connected={masterConnected} onChanged={()=>load(session,true)} />}
+              run={runRepo === "lucaskerim123/Dev-panel" ? run : null} runRepo={runRepo} handoff={handoff} drafts={data.base.drafts||[]} connected={masterConnected} onChanged={()=>load(session,true)} />}
             {tab === "engine" && <Composer type="engine" releases={data.engine.releases||[]} session={session} {...composerProps({ channel, setChannel, version, setVersion, notes, setNotes, files, commits, baseline,
               setFiles, setCommits, components, setComponents, minBase, setMinBase, protocol, setProtocol, busy, reviewOpen, availableChannels,
               changelogTemplate, setChangelogTemplate, changelogDraft, setChangelogDraft })}
