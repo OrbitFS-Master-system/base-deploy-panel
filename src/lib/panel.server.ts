@@ -396,8 +396,16 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const head = branch?.object?.sha;
  if (!head) throw new Error(`Could not resolve ${repo}@${ref}`);
  const previousSourceCommit = previousRelease?.source_sha || "";
+ const initialRelease = data.type === "base" && !previousSourceCommit;
  let detectedFiles:any[] = [];
- if (previousSourceCommit && previousSourceCommit !== head) {
+ if (initialRelease) {
+   const commit=await github(`/repos/${repo}/git/commits/${encodeURIComponent(head)}`);
+   const treeSha=commit?.tree?.sha;
+   const tree=treeSha?await github(`/repos/${repo}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`):null;
+   detectedFiles=(tree?.tree||[])
+     .filter((entry:any)=>entry.type==="blob"&&entry.path)
+     .map((entry:any)=>({filename:String(entry.path),status:"snapshot",additions:0,deletions:0,changes:0,size:Number(entry.size||0)}));
+ } else if (previousSourceCommit && previousSourceCommit !== head) {
    const cmp = await github(`/repos/${repo}/compare/${encodeURIComponent(previousSourceCommit)}...${encodeURIComponent(head)}`);
    detectedFiles = (cmp?.files || []).map((f:any)=>({
      filename:f.filename,
@@ -426,6 +434,8 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   sourceRef: ref,
   previousSourceCommit: previousSourceCommit || null,
   detectedSourceChanges: detectedFiles.length,
+  inspectionMode: initialRelease ? "full_snapshot" : "compare",
+  initialRelease,
   changedFiles: detectedFiles,
   components: selectedComponents,
   minimumBaseVersion: data.type === "engine" ? (data.minimumBaseVersion || "1.0.0") : null,
