@@ -35,7 +35,11 @@ function detectUpdateComponents(files:any[]){
   const migration=path.match(/^supabase\/migrations\/(shared|base|apex|mcp|studio)\/\d{14}_[a-z0-9._-]+\.sql$/i);
   const sourcePath=path.startsWith("src/")||/^(package(-lock)?\.json|tsconfig\.json|vite\.config\.ts|\.npmrc)$/.test(path);
   if(path.startsWith("updates/base/overlay/")&&!path.endsWith("/.gitkeep")&&!path.endsWith(".gitkeep"))add("base");
-  if(path==="updates/base/delete.txt")add("base");
+  if(path==="updates/base/delete.txt"){
+   const patch=String(item?.patch||"");
+   const addsRealDeletion=patch.split("\n").some((line:string)=>line.startsWith("+")&&!line.startsWith("+++")&&Boolean(line.slice(1).trim())&&!line.slice(1).trim().startsWith("#"));
+   if(addsRealDeletion)add("base");
+  }
   if(migration&&migration[1]!=="shared")add(migration[1].toLowerCase());
   if(path.includes("/addons/apex/"))add("apex");
   if(path.includes("/addons/mcp/"))add("mcp");
@@ -356,7 +360,7 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
 
  if(from===head)return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease:false,initialUpdate,inspectionMode,detectedComponents:[],files:[],commits:[]};
  const cmp=await github(`/repos/${repo}/compare/${encodeURIComponent(from)}...${encodeURIComponent(head)}`);
- const files=(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes}));
+ const files=(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes,patch:f.patch||""}));
  return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease,initialUpdate,inspectionMode,detectedComponents:data.type==="engine"?detectUpdateComponents(files):[],files,commits:cmp?.commits||[]};
 });
 
@@ -460,6 +464,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
      additions:f.additions,
      deletions:f.deletions,
      changes:f.changes,
+     patch:f.patch||"",
    }));
  }
 
