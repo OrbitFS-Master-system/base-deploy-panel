@@ -52,11 +52,16 @@ function detectUpdateComponents(files:any[]){
 }
 
 async function initialEngineSourceBaseline(head:string){
- const comparison=await github(`/repos/${ENGINE_REPO}/compare/${encodeURIComponent(ENGINE_BASELINE_REF)}...${encodeURIComponent(ENGINE_REF)}`);
- const sha=String(comparison?.merge_base_commit?.sha||"").trim();
- if(!sha)throw new Error(`Could not resolve the initial Update source baseline between ${ENGINE_BASELINE_REF} and ${ENGINE_REF}`);
- if(sha===head)throw new Error("UPDATE_RELEASE has no source changes beyond its branch baseline.");
- return {sha,ref:ENGINE_BASELINE_REF};
+ const config=await github(`/repos/${ENGINE_REPO}/contents/release/update-baseline.json?ref=${encodeURIComponent(ENGINE_REF)}`);
+ const raw=String(config?.content||"").replace(/\n/g,"");
+ let parsed:any={};
+ try{parsed=JSON.parse(Buffer.from(raw,"base64").toString("utf8"))}catch{throw new Error("Engine update baseline declaration is invalid JSON");}
+ const sha=String(parsed?.initialSourceCommit||"").trim();
+ if(!/^[a-f0-9]{40}$/i.test(sha))throw new Error("Engine update baseline declaration is missing a valid initialSourceCommit");
+ const commit=await github(`/repos/${ENGINE_REPO}/commits/${encodeURIComponent(sha)}`);
+ if(String(commit?.sha||"")!==sha)throw new Error("Declared initial Engine update baseline commit does not exist");
+ if(sha===head)throw new Error("UPDATE_RELEASE has no source changes beyond its declared initial baseline.");
+ return {sha,ref:"release/update-baseline.json"};
 }
 
 type PanelUser={id:string;email:string;display_name:string;role:string};
