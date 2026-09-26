@@ -242,7 +242,7 @@ jobs:
             previousSourceCommit:process.env.PREVIOUS_SOURCE_COMMIT||null,
             workflowRepository:process.env.GITHUB_REPOSITORY,
             workflowRunId:Number(process.env.GITHUB_RUN_ID),
-            changedFileCount:Array.isArray(control.changedFiles)?control.changedFiles.length:0,
+            changedFileCount:Number.isInteger(control.detectedSourceChanges)?control.detectedSourceChanges:(Array.isArray(control.changedFiles)?control.changedFiles.length:0),
             generatedAt:new Date().toISOString(),
             controlRecord:control
           };
