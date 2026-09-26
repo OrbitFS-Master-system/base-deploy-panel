@@ -35,7 +35,7 @@ export function ReleaseWorkspace(p:any){
  const sourceRef=p.baseline?.ref||(base?"base-release":"UPDATE_RELEASE");
  const sourceSha=p.baseline?.head||"";
  const currentVersion=p.baseline?.version||null;
- const sourceBaselineLabel=p.baseline?.kind==="branch_merge_base"?"Branch merge-base":currentVersion?"Published Update v"+currentVersion:"Not resolved";
+ const sourceBaselineLabel=p.baseline?.kind==="initial_snapshot"?"Initial snapshot v"+String(p.baseline?.initialReleaseVersion||currentVersion||"1.0.0"):p.baseline?.kind==="declared_initial_baseline"?"Declared initial baseline":p.baseline?.kind==="branch_merge_base"?"Branch merge-base":currentVersion?"Published Update v"+currentVersion:"Not resolved";
  const sourceBaselineSha=String(p.baseline?.sourceSha||"");
  const detectedTargets=Array.isArray(p.baseline?.detectedComponents)?p.baseline.detectedComponents:[];
  const suggested=currentVersion&&/^\d+\.\d+\.\d+/.test(String(currentVersion))?String(currentVersion).replace(/^(\d+)\.(\d+)\.(\d+).*$/,(_:string,a:string,b:string,d:string)=>a+"."+b+"."+(Number(d)+1)):"";
