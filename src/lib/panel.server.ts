@@ -8,6 +8,7 @@ const BASE_WORKER_REPO=process.env.BASE_RELEASE_WORKER_REPO||"lucaskerim123/Dev-
 const BASE_WORKER_REF=process.env.BASE_RELEASE_WORKER_REF||"main";
 const ENGINE_REPO=process.env.ENGINE_RELEASE_REPO||"lucaskerim123/V1-vercel-engine";
 const ENGINE_REF=process.env.ENGINE_RELEASE_REF||"UPDATE_RELEASE";
+const ENGINE_BASELINE_REF=process.env.ENGINE_BASELINE_REF||"main";
 const BASE_WORKFLOW=process.env.BASE_RELEASE_WORKER_WORKFLOW||"package-base-release.yml";
 const ENGINE_WORKFLOW=process.env.ENGINE_RELEASE_WORKFLOW||"publish-engine-release.yml";
 
@@ -25,6 +26,33 @@ const masterUrl=()=> {
 };
 const normalizeChannel=(value:string)=>String(value||"stable").trim().toLowerCase();
 const allowedRepos=new Set([BASE_REPO,BASE_WORKER_REPO,ENGINE_REPO]);
+
+function detectUpdateComponents(files:any[]){
+ const out:string[]=[];
+ const add=(value:string)=>{if(["base","apex","mcp","studio"].includes(value)&&!out.includes(value))out.push(value)};
+ for(const item of files||[]){
+  const path=String(item?.filename||item?.file||"").toLowerCase().replaceAll("\\","/");
+  const migration=path.match(/^supabase\/migrations\/(shared|base|apex|mcp|studio)\/\d{14}_[a-z0-9._-]+\.sql$/i);
+  const sourcePath=path.startsWith("src/")||/^(package(-lock)?\.json|tsconfig\.json|vite\.config\.ts|\.npmrc)$/.test(path);
+  if(path.startsWith("updates/base/"))add("base");
+  if(migration&&migration[1]!=="shared")add(migration[1].toLowerCase());
+  if(path.includes("/addons/apex/"))add("apex");
+  if(path.includes("/addons/mcp/"))add("mcp");
+  if(path.includes("/addons/studio/"))add("studio");
+  if(!migration&&sourcePath&&!path.includes("/addons/apex/")&&!path.includes("/addons/mcp/")&&!path.includes("/addons/studio/")){
+   add("apex");add("mcp");add("studio");
+  }
+ }
+ return out;
+}
+
+async function initialEngineSourceBaseline(head:string){
+ const comparison=await github(`/repos/${ENGINE_REPO}/compare/${encodeURIComponent(ENGINE_BASELINE_REF)}...${encodeURIComponent(ENGINE_REF)}`);
+ const sha=String(comparison?.merge_base_commit?.sha||"").trim();
+ if(!sha)throw new Error(`Could not resolve the initial Update source baseline between ${ENGINE_BASELINE_REF} and ${ENGINE_REF}`);
+ if(sha===head)throw new Error("UPDATE_RELEASE has no source changes beyond its branch baseline.");
+ return {sha,ref:ENGINE_BASELINE_REF};
+}
 
 type PanelUser={id:string;email:string;display_name:string;role:string};
 const sessionSecret=()=>required("APP_SESSION_SECRET");
@@ -301,10 +329,20 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
      .sort((a:any,b:any)=>new Date(b.published_at||b.created_at||0).getTime()-new Date(a.published_at||a.created_at||0).getTime())[0]||null;
  } catch {}
 
- const baselineInfo=baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha}:null;
  const baseBaselineInfo=baseBaseline?{id:baseBaseline.id,version:baseBaseline.version,sourceSha:baseBaseline.source_sha}:null;
- const from=baseline?.source_sha||"";
+ let from=String(baseline?.source_sha||"");
+ let baselineInfo:any=baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha,kind:"published_update"}:null;
+ let initialRelease=false;
+ let initialUpdate=false;
+ let inspectionMode="compare";
 
+ if(!from&&data.type==="engine"){
+   const initial=await initialEngineSourceBaseline(head);
+   from=initial.sha;
+   baselineInfo={id:null,version:null,sourceSha:from,kind:"branch_merge_base",ref:initial.ref};
+   initialUpdate=true;
+   inspectionMode="branch_baseline";
+ }
  if(!from){
    const commit=await github(`/repos/${repo}/git/commits/${encodeURIComponent(head)}`);
    const treeSha=commit?.tree?.sha;
@@ -312,12 +350,13 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
    const files=(tree?.tree||[])
      .filter((entry:any)=>entry.type==="blob"&&entry.path)
      .map((entry:any)=>({filename:String(entry.path),status:"snapshot",additions:0,deletions:0,changes:0,size:Number(entry.size||0)}));
-   return {repo,ref,head,baseline:null,baseBaseline:baseBaselineInfo,initialRelease:true,inspectionMode:"full_snapshot",files,commits:[]};
+   return {repo,ref,head,baseline:null,baseBaseline:baseBaselineInfo,initialRelease:true,initialUpdate:false,inspectionMode:"full_snapshot",detectedComponents:[],files,commits:[]};
  }
 
- if(from===head)return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease:false,inspectionMode:"compare",files:[],commits:[]};
+ if(from===head)return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease:false,initialUpdate,inspectionMode,detectedComponents:[],files:[],commits:[]};
  const cmp=await github(`/repos/${repo}/compare/${encodeURIComponent(from)}...${encodeURIComponent(head)}`);
- return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease:false,inspectionMode:"compare",files:(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes})),commits:cmp?.commits||[]};
+ const files=(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes}));
+ return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease,initialUpdate,inspectionMode,detectedComponents:data.type==="engine"?detectUpdateComponents(files):[],files,commits:cmp?.commits||[]};
 });
 
 export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string}})=>{  readSession(data.token);  const product="orbitfs_base";  const releaseType=data.type==="base"?"base":"update";  const channel=normalizeChannel(data.channel);  const result=await licenseMaster(`/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`);  const release=(result?.releases||[]).find((r:any)=>String(r.version)===String(data.version)&&!r.archived_at);  return {release:release||null,product,releaseType,channel};});export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{
@@ -395,8 +434,15 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const branch = await github(`/repos/${repo}/git/ref/heads/${encodeURIComponent(ref)}`);
  const head = branch?.object?.sha;
  if (!head) throw new Error(`Could not resolve ${repo}@${ref}`);
- const previousSourceCommit = previousRelease?.source_sha || "";
+ let previousSourceCommit = String(previousRelease?.source_sha || "");
  const initialRelease = data.type === "base" && !previousSourceCommit;
+ const initialUpdate = data.type === "engine" && !previousSourceCommit;
+ let sourceBaselineKind = previousSourceCommit ? "published_update" : initialRelease ? "full_snapshot" : "";
+ if(initialUpdate){
+   const initial=await initialEngineSourceBaseline(head);
+   previousSourceCommit=initial.sha;
+   sourceBaselineKind="branch_merge_base";
+ }
  let detectedFiles:any[] = [];
  if (initialRelease) {
    const commit=await github(`/repos/${repo}/git/commits/${encodeURIComponent(head)}`);
@@ -416,13 +462,17 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
    }));
  }
 
- if (data.type === "engine" && previousSourceCommit && previousSourceCommit === head) {
-   throw new Error("No source changes detected since the last approved Engine release.");
+ if (data.type === "engine" && previousSourceCommit === head) {
+   throw new Error("No source changes detected since the Update source baseline.");
  }
+ if(data.type==="engine"&&!detectedFiles.length)throw new Error("No Update source changes were detected against the authoritative baseline.");
 
  const selectedComponents = data.type === "engine"
    ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["base","apex","mcp","studio"].includes(x)))]
    : ["base"];
+ const detectedComponents=data.type==="engine"?detectUpdateComponents(detectedFiles):[];
+ const missingDetectedComponents=detectedComponents.filter((component:string)=>!selectedComponents.includes(component));
+ if(missingDetectedComponents.length)throw new Error(`Stage 1 targets do not cover detected Update changes: ${missingDetectedComponents.join(", ")}. Re-inspect the Update source before building.`);
 
  const dispatchFileLimit = data.type === "base" ? 100 : detectedFiles.length;
  const dispatchFiles = initialRelease ? [] : detectedFiles.slice(0, dispatchFileLimit);
@@ -436,8 +486,11 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   sourceRef: ref,
   previousSourceCommit: previousSourceCommit || null,
   detectedSourceChanges: detectedFiles.length,
-  inspectionMode: initialRelease ? "full_snapshot" : "compare",
+  inspectionMode: initialRelease ? "full_snapshot" : initialUpdate ? "branch_baseline" : "compare",
   initialRelease,
+  initialUpdate,
+  sourceBaselineKind,
+  detectedComponents,
   changedFiles: dispatchFiles,
   changedFilesTruncated: detectedFiles.length > dispatchFiles.length,
   components: selectedComponents,
