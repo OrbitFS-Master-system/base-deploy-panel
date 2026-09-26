@@ -34,7 +34,8 @@ function detectUpdateComponents(files:any[]){
   const path=String(item?.filename||item?.file||"").toLowerCase().replaceAll("\\","/");
   const migration=path.match(/^supabase\/migrations\/(shared|base|apex|mcp|studio)\/\d{14}_[a-z0-9._-]+\.sql$/i);
   const sourcePath=path.startsWith("src/")||/^(package(-lock)?\.json|tsconfig\.json|vite\.config\.ts|\.npmrc)$/.test(path);
-  if(path.startsWith("updates/base/"))add("base");
+  if(path.startsWith("updates/base/overlay/")&&!path.endsWith("/.gitkeep")&&!path.endsWith(".gitkeep"))add("base");
+  if(path==="updates/base/delete.txt")add("base");
   if(migration&&migration[1]!=="shared")add(migration[1].toLowerCase());
   if(path.includes("/addons/apex/"))add("apex");
   if(path.includes("/addons/mcp/"))add("mcp");
