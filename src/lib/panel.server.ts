@@ -4,9 +4,11 @@ import crypto from "node:crypto";
 
 const BASE_REPO=process.env.BASE_RELEASE_REPO||"lucaskerim123/V1-vercel-base";
 const BASE_REF=process.env.BASE_RELEASE_REF||"base-release";
+const BASE_WORKER_REPO=process.env.BASE_RELEASE_WORKER_REPO||"lucaskerim123/Dev-panel";
+const BASE_WORKER_REF=process.env.BASE_RELEASE_WORKER_REF||"main";
 const ENGINE_REPO=process.env.ENGINE_RELEASE_REPO||"lucaskerim123/V1-vercel-engine";
 const ENGINE_REF=process.env.ENGINE_RELEASE_REF||"UPDATE_RELEASE";
-const BASE_WORKFLOW=process.env.BASE_RELEASE_WORKFLOW||"release-to-license-master.yml";
+const BASE_WORKFLOW=process.env.BASE_RELEASE_WORKFLOW||"package-base-release.yml";
 const ENGINE_WORKFLOW=process.env.ENGINE_RELEASE_WORKFLOW||"publish-engine-release.yml";
 
 const required=(name:string)=>{const v=process.env[name];if(!v)throw new Error(`Missing server environment variable: ${name}`);return v};
@@ -22,7 +24,7 @@ const masterUrl=()=> {
  return url.toString().replace(/\/$/,"");
 };
 const normalizeChannel=(value:string)=>String(value||"stable").trim().toLowerCase();
-const allowedRepos=new Set([BASE_REPO,ENGINE_REPO]);
+const allowedRepos=new Set([BASE_REPO,BASE_WORKER_REPO,ENGINE_REPO]);
 
 type PanelUser={id:string;email:string;display_name:string;role:string};
 const sessionSecret=()=>required("APP_SESSION_SECRET");
@@ -193,7 +195,7 @@ export const getPanelState=createServerFn({method:"POST"}).handler(async({data}:
  for(const attempt of attempts){const list=grouped.get(attempt.draft_id)||[];list.push(attempt);grouped.set(attempt.draft_id,list)}
  const releaseDrafts=(drafts||[]).map((draft:any)=>({...draft,attempts:grouped.get(draft.id)||[]}));
  const availableChannels=Array.isArray(channels?.channels)?channels.channels.filter((x:any)=>x?.enabled===true).map((x:any)=>String(x.channel).trim().toLowerCase()).filter(Boolean):[];
- return {releases:releases?.releases||[],drafts:releaseDrafts,channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
+ return {releases:releases?.releases||[],drafts:releaseDrafts,channels:availableChannels,selectedChannel:channel,masterUrl:masterUrl(),product,repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workerRepo:BASE_WORKER_REPO,workerRef:BASE_WORKER_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}}};
 });
 
 
@@ -353,7 +355,11 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const channels=await licenseMaster(`/release-channels?include_disabled=false`);
  const channelEnabled=Array.isArray(channels?.channels)&&channels.channels.some((x:any)=>String(x.channel).trim().toLowerCase()===channel&&x.enabled===true);
  if(!channelEnabled)throw new Error("Release channel is not configured or is disabled in License Master: "+channel);
- const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF,workflow=data.type==="base"?BASE_WORKFLOW:ENGINE_WORKFLOW;
+ const repo=data.type==="base"?BASE_REPO:ENGINE_REPO;
+ const ref=data.type==="base"?BASE_REF:ENGINE_REF;
+ const workerRepo=data.type==="base"?BASE_WORKER_REPO:ENGINE_REPO;
+ const workerRef=data.type==="base"?BASE_WORKER_REF:ENGINE_REF;
+ const workflow=data.type==="base"?BASE_WORKFLOW:ENGINE_WORKFLOW;
  if (data.type === "engine") {
   const minimumBaseVersion=String(data.minimumBaseVersion||"").trim();
   const protocol=Number(data.protocol||"");
@@ -421,7 +427,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   changed_files:JSON.stringify(detectedFiles),
   previous_source_commit:previousSourceCommit,
  };
- if(data.type==="base") inputs.release_record=JSON.stringify(releaseRecord);
+ if(data.type==="base") Object.assign(inputs,{release_record:JSON.stringify(releaseRecord),source_repo:repo,source_ref:ref,source_sha:head});
  if(data.type==="engine")Object.assign(inputs,{base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
  const releaseType=data.type==="base"?"base":"update";
  const sb=authClient();
@@ -445,12 +451,12 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  let runId:number|undefined;
  let runUrl:string|undefined;
  try{
-   await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref,inputs})});
+   await github(`/repos/${workerRepo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,{method:"POST",body:JSON.stringify({ref:workerRef,inputs})});
    for(let attempt=0;attempt<5&&!runId;attempt++){
      await new Promise(r=>setTimeout(r,700));
      try{
-       const runs=await github(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(ref)}&per_page=10`);
-       const candidate=(runs?.workflow_runs||[]).filter((r:any)=>r.head_branch===ref&&new Date(r.created_at||0).getTime()>=dispatchedAt-5000).sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime())[0];
+       const runs=await github(`/repos/${workerRepo}/actions/workflows/${encodeURIComponent(workflow)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(workerRef)}&per_page=10`);
+       const candidate=(runs?.workflow_runs||[]).filter((r:any)=>r.head_branch===workerRef&&new Date(r.created_at||0).getTime()>=dispatchedAt-5000).sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime())[0];
        runId=candidate?.id;
        runUrl=candidate?.html_url;
      }catch{}
@@ -465,7 +471,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
    await sb.from("panel_release_attempts").update({run_id:runId,run_url:runUrl||null,status:"queued"}).eq("id",attemptRow.id);
    await sb.from("panel_release_drafts").update({last_run_id:runId,last_run_url:runUrl||null,status:"building",updated_at:new Date().toISOString()}).eq("id",draft.id);
  }
- return {ok:true,repo,ref,workflow,channel,runId:runId||null,draftId:draft.id,attemptNumber};
+ return {ok:true,repo:workerRepo,ref:workerRef,sourceRepo:repo,sourceRef:ref,sourceSha:head,workflow,channel,runId:runId||null,draftId:draft.id,attemptNumber};
 });
 
 
@@ -481,7 +487,7 @@ export const getControlState=createServerFn({method:"POST"}).handler(async({data
   releases:[...(base?.releases||[]),...(updates?.releases||[])].sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime()),
   channels:channels?.channels||[],
   audit:audit?.events||[],
-  repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}},
+  repositories:{base:{repo:BASE_REPO,ref:BASE_REF,workerRepo:BASE_WORKER_REPO,workerRef:BASE_WORKER_REF,workflow:BASE_WORKFLOW},engine:{repo:ENGINE_REPO,ref:ENGINE_REF,workflow:ENGINE_WORKFLOW}},
   masterUrl:masterUrl()
  };
 });
