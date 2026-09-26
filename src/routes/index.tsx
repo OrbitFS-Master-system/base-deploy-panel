@@ -157,9 +157,7 @@ function Index() {
     setBusy("inspect");
     setError(""); setNotice("");
     try {
-      const current = data[type].releases?.filter((r: any) => r.review_status === "approved" && r.source_sha && !r.archived_at)
-        .sort((a: any, b: any) => new Date(b.published_at || b.created_at || 0).getTime() - new Date(a.published_at || a.created_at || 0).getTime())[0]?.source_sha;
-      const r = await inspectSource({ data: { token: session.token, type, from: current, channel } });
+      const r = await inspectSource({ data: { token: session.token, type, channel } });
       setFiles(r.files || []);
       setCommits(r.commits || []);
       setBaseline({ ...(r.baseline || {}), repo: r.repo, ref: r.ref, head: r.head, baseBaseline: r.baseBaseline || null });
@@ -177,9 +175,12 @@ function Index() {
         repo: r.repo,
         ref: r.ref,
         head: r.head,
+        initialRelease: r.initialRelease === true,
       }));
       setReviewOpen(true);
-      setNotice(`${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected.`);
+      setNotice(r.initialRelease
+        ? `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · initial Base snapshot · ${r.files.length} tracked files inspected.`
+        : `${r.repo}@${r.ref} resolved at ${r.head.slice(0, 8)} · ${r.files.length} changed files detected against published baseline.`);
     } catch (x: any) {
       setError(x.message || "Unable to inspect source.");
     } finally { setBusy(""); }
@@ -458,12 +459,15 @@ function buildChangelog(type: ReleaseType, data: any) {
   const base = type === "base";
   const commits = (data.commits || []).map((c:any) => String(c.subject || c.message || "").trim()).filter(Boolean).slice(0, 20);
   const files = data.files || [];
-  const fileLines = files.length ? files.map((f:any) => `• ${f.filename} (${f.status}, +${f.additions || 0} / -${f.deletions || 0})`).join("\n") : "No source changes were detected against the previous approved source commit.";
+  const initialRelease = data.initialRelease === true;
+  const fileLines = files.length ? files.map((f:any) => initialRelease ? `• ${f.filename} (snapshot)` : `• ${f.filename} (${f.status}, +${f.additions || 0} / -${f.deletions || 0})`).join("\n") : "No source changes were detected against the previous published Base release.";
   const commitLines = commits.length ? commits.map((s:string) => `• ${s}`).join("\n") : "No commits were returned for this source range.";
-  const changes = files.length
+  const changes = initialRelease
+    ? `No previously published Base release exists in this channel. This initial Base deployment will package the complete current source snapshot (${files.length} tracked files).`
+    : files.length
     ? `This ${base ? "deployment" : "update"} contains ${files.length} changed source file${files.length === 1 ? "" : "s"}.${base ? "" : ` The selected components are ${(data.components || []).map((x:string)=>x.toUpperCase()).join(", ") || "not specified"}.`}`
     : base
-      ? "No source changes were detected against the previous approved source commit. This is still a complete Base deployment: the current Base source state will be packaged and go through the normal checks."
+      ? "No source changes were detected against the previous published Base release. This is still a complete Base deployment: the current Base source state will be packaged and go through the normal checks."
       : "No source changes were detected. An Engine update requires source changes, so this release cannot be dispatched until changes are available.";
   const checks = [
     "✓ Source checked",
