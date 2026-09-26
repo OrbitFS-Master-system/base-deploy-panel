@@ -468,7 +468,12 @@ function buildChangelog(type: ReleaseType, data: any) {
   const commits = (data.commits || []).map((c:any) => String(c.subject || c.message || "").trim()).filter(Boolean).slice(0, 20);
   const files = data.files || [];
   const initialRelease = data.initialRelease === true;
-  const fileLines = files.length ? files.map((f:any) => initialRelease ? `• ${f.filename} (snapshot)` : `• ${f.filename} (${f.status}, +${f.additions || 0} / -${f.deletions || 0})`).join("\n") : "No source changes were detected against the previous published Base release.";
+  const visibleFiles = initialRelease ? [] : files.slice(0, 120);
+  const fileLines = initialRelease
+    ? `Full source snapshot: ${files.length} tracked files. The exact file inventory and SHA-256 values are recorded in the packaged Base manifest.`
+    : files.length
+      ? visibleFiles.map((f:any) => `• ${f.filename} (${f.status}, +${f.additions || 0} / -${f.deletions || 0})`).join("\n") + (files.length > visibleFiles.length ? `\n• … ${files.length-visibleFiles.length} additional changed files recorded in the release manifest.` : "")
+      : "No source changes were detected against the previous published Base release.";
   const commitLines = commits.length ? commits.map((s:string) => `• ${s}`).join("\n") : "No commits were returned for this source range.";
   const changes = initialRelease
     ? `No previously published Base release exists in this channel. This initial Base deployment will package the complete current source snapshot (${files.length} tracked files).`
