@@ -189,7 +189,7 @@ function Index() {
     setBusy("start"); setError(""); setNotice("");
     try {
       const r = await startRelease({
-        data: { token: session.token, type, version, channel, notes: changelogDraft, files, components,
+        data: { token: session.token, type, version, channel, notes, changelogDraft, files, components,
           minimumBaseVersion: minBase, protocol, changelogTemplate }
       });
       setReviewOpen(false);
