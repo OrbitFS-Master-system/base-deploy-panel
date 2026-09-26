@@ -344,7 +344,7 @@ export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({da
   throw new Error("Release workflow run is not available yet");
 });
 
-export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string;notes:string;files:any[];components:string[];minimumBaseVersion:string;protocol:string;changelogTemplate:string}})=>{
+export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string;notes:string;changelogDraft:string;files:any[];components:string[];minimumBaseVersion:string;protocol:string;changelogTemplate:string}})=>{
  const actor=readSession(data.token);
  const version=data.version.trim();
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))throw new Error("Version must be valid SemVer, e.g. 1.2.3");
@@ -420,10 +420,12 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   changelogTemplate: data.changelogTemplate,
   generatedAt: new Date().toISOString(),
  };
+ const generatedChangelog=String(data.changelogDraft||"").trim();
+ if(!generatedChangelog)throw new Error("Review the generated changelog before sending the release.");
  const inputs:any={
   version,
   channel,
-  notes:data.notes.trim(),
+  notes:generatedChangelog,
   changed_files:JSON.stringify(detectedFiles),
   previous_source_commit:previousSourceCommit,
  };
@@ -434,7 +436,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  const {data:existing,error:existingError}=await sb.from("panel_release_drafts").select("*").eq("release_type",releaseType).eq("version",version).eq("channel",channel).maybeSingle();
  if(existingError)throw new Error("Unable to resolve release draft: "+existingError.message);
  if(existing&&["archived","rejected"].includes(String(existing.status)))throw new Error("This release draft is closed. Use a new version instead of creating another attempt.");
- const inputSnapshot={type:data.type,version,channel,notes:data.notes.trim(),components:selectedComponents,minimumBaseVersion:data.minimumBaseVersion||null,protocol:data.protocol||null,changelogTemplate:data.changelogTemplate,sourceSha:head,changedFiles:detectedFiles};
+ const inputSnapshot={type:data.type,version,channel,notes:data.notes.trim(),changelogDraft:generatedChangelog,components:selectedComponents,minimumBaseVersion:data.minimumBaseVersion||null,protocol:data.protocol||null,changelogTemplate:data.changelogTemplate,sourceSha:head,changedFiles:detectedFiles};
  let draft:any=existing;
  if(!draft){
    const {data:created,error:createError}=await sb.from("panel_release_drafts").insert({release_type:releaseType,version,channel,source_repo:repo,source_ref:ref,source_sha:head,status:"draft",inputs:inputSnapshot,created_by:actor.email||actor.id}).select("*").single();
