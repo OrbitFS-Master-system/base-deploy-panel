@@ -56,16 +56,13 @@ async function initialEngineSourceBaseline(head:string){
  const raw=String(config?.content||"").replace(/\n/g,"");
  let parsed:any={};
  try{parsed=JSON.parse(Buffer.from(raw,"base64").toString("utf8"))}catch{throw new Error("Engine update baseline declaration is invalid JSON");}
- const sha=String(parsed?.initialSourceCommit||"").trim();
  const initialReleaseVersion=String(parsed?.initialReleaseVersion||"").trim();
  if(parsed?.locked!==true)throw new Error("Engine update baseline must be explicitly locked before the first Update release.");
+ if(String(parsed?.mode||"")!=="snapshot")throw new Error("Engine first Update baseline must use snapshot mode.");
  if(String(parsed?.sourceRepository||"")!==ENGINE_REPO||String(parsed?.releaseBranch||"")!==ENGINE_REF)throw new Error("Engine update baseline declaration does not match the configured Update source.");
- if(!/^[a-f0-9]{40}$/i.test(sha))throw new Error("Engine update baseline declaration is missing a valid initialSourceCommit");
  if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(initialReleaseVersion))throw new Error("Engine update baseline declaration is missing a valid initialReleaseVersion");
- const commit=await github(`/repos/${ENGINE_REPO}/commits/${encodeURIComponent(sha)}`);
- if(String(commit?.sha||"")!==sha)throw new Error("Declared initial Engine update baseline commit does not exist");
- if(sha===head)throw new Error("UPDATE_RELEASE has no source changes beyond its declared initial baseline.");
- return {sha,ref:"release/update-baseline.json",initialReleaseVersion,locked:true};
+ if(!/^[a-f0-9]{40}$/i.test(head))throw new Error("Could not resolve the exact UPDATE_RELEASE snapshot SHA.");
+ return {sha:head,ref:"release/update-baseline.json",initialReleaseVersion,locked:true,mode:"snapshot",components:["apex","mcp","studio"]};
 }
 
 type PanelUser={id:string;email:string;display_name:string;role:string};
@@ -352,10 +349,14 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
 
  if(!from&&data.type==="engine"){
    const initial=await initialEngineSourceBaseline(head);
-   from=initial.sha;
-   baselineInfo={id:null,version:initial.initialReleaseVersion,sourceSha:from,kind:"declared_initial_baseline",ref:initial.ref,locked:initial.locked,initialReleaseVersion:initial.initialReleaseVersion};
-   initialUpdate=true;
-   inspectionMode="declared_initial_baseline";
+   const commit=await github(`/repos/${repo}/git/commits/${encodeURIComponent(head)}`);
+   const treeSha=commit?.tree?.sha;
+   const tree=treeSha?await github(`/repos/${repo}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`):null;
+   const files=(tree?.tree||[])
+     .filter((entry:any)=>entry.type==="blob"&&entry.path)
+     .map((entry:any)=>({filename:String(entry.path),status:"snapshot",additions:0,deletions:0,changes:0,size:Number(entry.size||0)}));
+   baselineInfo={id:null,version:initial.initialReleaseVersion,sourceSha:head,kind:"initial_snapshot",ref:initial.ref,locked:initial.locked,initialReleaseVersion:initial.initialReleaseVersion};
+   return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease:false,initialUpdate:true,inspectionMode:"initial_snapshot",detectedComponents:initial.components,files,commits:[]};
  }
  if(!from){
    const commit=await github(`/repos/${repo}/git/commits/${encodeURIComponent(head)}`);
@@ -451,12 +452,12 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  let previousSourceCommit = String(previousRelease?.source_sha || "");
  const initialRelease = data.type === "base" && !previousSourceCommit;
  const initialUpdate = data.type === "engine" && !previousSourceCommit;
+ let initialUpdateConfig:any=null;
  let sourceBaselineKind = previousSourceCommit ? "published_update" : initialRelease ? "full_snapshot" : "";
  if(initialUpdate){
-   const initial=await initialEngineSourceBaseline(head);
-   if(version!==initial.initialReleaseVersion)throw new Error(`The first published Update is locked to v${initial.initialReleaseVersion}. Set the Update version to ${initial.initialReleaseVersion}; later releases can use any advancing SemVer.`);
-   previousSourceCommit=initial.sha;
-   sourceBaselineKind="declared_initial_baseline";
+   initialUpdateConfig=await initialEngineSourceBaseline(head);
+   if(version!==initialUpdateConfig.initialReleaseVersion)throw new Error(`The first published Update is locked to v${initialUpdateConfig.initialReleaseVersion}. Set the Update version to ${initialUpdateConfig.initialReleaseVersion}; later releases can use any advancing SemVer.`);
+   sourceBaselineKind="initial_snapshot";
  }
  let detectedFiles:any[] = [];
  if (initialRelease) {
@@ -466,7 +467,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
    detectedFiles=(tree?.tree||[])
      .filter((entry:any)=>entry.type==="blob"&&entry.path)
      .map((entry:any)=>({filename:String(entry.path),status:"snapshot",additions:0,deletions:0,changes:0,size:Number(entry.size||0)}));
- } else if (previousSourceCommit && previousSourceCommit !== head) {
+ } else if (!initialUpdate && previousSourceCommit && previousSourceCommit !== head) {
    const cmp = await github(`/repos/${repo}/compare/${encodeURIComponent(previousSourceCommit)}...${encodeURIComponent(head)}`);
    detectedFiles = (cmp?.files || []).map((f:any)=>({
      filename:f.filename,
@@ -481,14 +482,15 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  if (data.type === "engine" && previousSourceCommit === head) {
    throw new Error("No source changes detected since the Update source baseline.");
  }
- if(data.type==="engine"&&!detectedFiles.length)throw new Error("No Update source changes were detected against the authoritative baseline.");
+ if(data.type==="engine"&&!initialUpdate&&!detectedFiles.length)throw new Error("No Update source changes were detected against the authoritative published baseline.");
 
  const selectedComponents = data.type === "engine"
    ? [...new Set((data.components || []).map((x:string)=>String(x).trim().toLowerCase()).filter((x:string)=>["base","apex","mcp","studio"].includes(x)))]
    : ["base"];
- const detectedComponents=data.type==="engine"?detectUpdateComponents(detectedFiles):[];
+ const detectedComponents=data.type==="engine"?(initialUpdate?(initialUpdateConfig?.components||["apex","mcp","studio"]):detectUpdateComponents(detectedFiles)):[];
  const missingDetectedComponents=detectedComponents.filter((component:string)=>!selectedComponents.includes(component));
  if(missingDetectedComponents.length)throw new Error(`Stage 1 targets do not cover detected Update changes: ${missingDetectedComponents.join(", ")}. Re-inspect the Update source before building.`);
+ if(initialUpdate&&selectedComponents.includes("base"))throw new Error("The v1.0.0 bootstrap is an Engine snapshot baseline only. Base is released separately and must not be selected for the bootstrap Update.");
 
  const compactDispatchFile=(file:any)=>({
   filename:String(file?.filename||""),
@@ -498,7 +500,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   changes:Number(file?.changes||0),
  });
  const dispatchFileLimit = data.type === "base" ? 100 : detectedFiles.length;
- const dispatchFiles = initialRelease ? [] : detectedFiles.slice(0, dispatchFileLimit).map(compactDispatchFile);
+ const dispatchFiles = (initialRelease||initialUpdate) ? [] : detectedFiles.slice(0, dispatchFileLimit).map(compactDispatchFile);
  const releaseRecord = {
   format: "orbitfs-release-record-v1",
   releaseType: data.type === "base" ? "base" : "update",
@@ -509,7 +511,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   sourceRef: ref,
   previousSourceCommit: previousSourceCommit || null,
   detectedSourceChanges: detectedFiles.length,
-  inspectionMode: initialRelease ? "full_snapshot" : initialUpdate ? "declared_initial_baseline" : "compare",
+  inspectionMode: initialRelease ? "full_snapshot" : initialUpdate ? "initial_snapshot" : "compare",
   initialRelease,
   initialUpdate,
   sourceBaselineKind,
@@ -533,7 +535,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   previous_source_commit:previousSourceCommit,
  };
  if(data.type==="base") Object.assign(inputs,{release_record:JSON.stringify(releaseRecord),source_repo:repo,source_ref:ref,source_sha:head});
- if(data.type==="engine")Object.assign(inputs,{base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
+ if(data.type==="engine")Object.assign(inputs,{source_sha:head,base:String(selectedComponents.includes("base")),apex:String(selectedComponents.includes("apex")),mcp:String(selectedComponents.includes("mcp")),studio:String(selectedComponents.includes("studio")),minimum_base_version:data.minimumBaseVersion||"1.0.0",minimum_deployer_protocol:data.protocol||"1"});
  const dispatchPayload=JSON.stringify({ref:workerRef,inputs});
  const dispatchBytes=Buffer.byteLength(dispatchPayload,"utf8");
  if(dispatchBytes>50000){
