@@ -57,11 +57,15 @@ async function initialEngineSourceBaseline(head:string){
  let parsed:any={};
  try{parsed=JSON.parse(Buffer.from(raw,"base64").toString("utf8"))}catch{throw new Error("Engine update baseline declaration is invalid JSON");}
  const sha=String(parsed?.initialSourceCommit||"").trim();
+ const initialReleaseVersion=String(parsed?.initialReleaseVersion||"").trim();
+ if(parsed?.locked!==true)throw new Error("Engine update baseline must be explicitly locked before the first Update release.");
+ if(String(parsed?.sourceRepository||"")!==ENGINE_REPO||String(parsed?.releaseBranch||"")!==ENGINE_REF)throw new Error("Engine update baseline declaration does not match the configured Update source.");
  if(!/^[a-f0-9]{40}$/i.test(sha))throw new Error("Engine update baseline declaration is missing a valid initialSourceCommit");
+ if(!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(initialReleaseVersion))throw new Error("Engine update baseline declaration is missing a valid initialReleaseVersion");
  const commit=await github(`/repos/${ENGINE_REPO}/commits/${encodeURIComponent(sha)}`);
  if(String(commit?.sha||"")!==sha)throw new Error("Declared initial Engine update baseline commit does not exist");
  if(sha===head)throw new Error("UPDATE_RELEASE has no source changes beyond its declared initial baseline.");
- return {sha,ref:"release/update-baseline.json"};
+ return {sha,ref:"release/update-baseline.json",initialReleaseVersion,locked:true};
 }
 
 type PanelUser={id:string;email:string;display_name:string;role:string};
@@ -349,9 +353,9 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
  if(!from&&data.type==="engine"){
    const initial=await initialEngineSourceBaseline(head);
    from=initial.sha;
-   baselineInfo={id:null,version:null,sourceSha:from,kind:"branch_merge_base",ref:initial.ref};
+   baselineInfo={id:null,version:initial.initialReleaseVersion,sourceSha:from,kind:"declared_initial_baseline",ref:initial.ref,locked:initial.locked,initialReleaseVersion:initial.initialReleaseVersion};
    initialUpdate=true;
-   inspectionMode="branch_baseline";
+   inspectionMode="declared_initial_baseline";
  }
  if(!from){
    const commit=await github(`/repos/${repo}/git/commits/${encodeURIComponent(head)}`);
@@ -450,8 +454,9 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
  let sourceBaselineKind = previousSourceCommit ? "published_update" : initialRelease ? "full_snapshot" : "";
  if(initialUpdate){
    const initial=await initialEngineSourceBaseline(head);
+   if(version!==initial.initialReleaseVersion)throw new Error(`The first published Update is locked to v${initial.initialReleaseVersion}. Set the Update version to ${initial.initialReleaseVersion}; later releases can use any advancing SemVer.`);
    previousSourceCommit=initial.sha;
-   sourceBaselineKind="branch_merge_base";
+   sourceBaselineKind="declared_initial_baseline";
  }
  let detectedFiles:any[] = [];
  if (initialRelease) {
@@ -504,7 +509,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   sourceRef: ref,
   previousSourceCommit: previousSourceCommit || null,
   detectedSourceChanges: detectedFiles.length,
-  inspectionMode: initialRelease ? "full_snapshot" : initialUpdate ? "branch_baseline" : "compare",
+  inspectionMode: initialRelease ? "full_snapshot" : initialUpdate ? "declared_initial_baseline" : "compare",
   initialRelease,
   initialUpdate,
   sourceBaselineKind,
