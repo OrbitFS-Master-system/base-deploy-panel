@@ -69,12 +69,23 @@ jobs:
         with:
           path: worker
 
+      - name: Verify private Base checkout credential
+        shell: bash
+        env:
+          BASE_CHECKOUT_TOKEN: ${{ secrets.ORBITFS_RELEASE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_CHECKOUT_TOKEN" || {
+            echo "::error::Missing Dev Panel Actions secret ORBITFS_RELEASE_DISPATCH_TOKEN. The default GITHUB_TOKEN cannot checkout the private repository ${{ inputs.source_repo }}."
+            exit 1
+          }
+
       - name: Checkout exact Base source snapshot
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.source_repo }}
           ref: ${{ inputs.source_sha }}
-          token: ${{ secrets.ORBITFS_RELEASE_DISPATCH_TOKEN || github.token }}
+          token: ${{ secrets.ORBITFS_RELEASE_DISPATCH_TOKEN }}
           fetch-depth: 0
           path: base-source
 
