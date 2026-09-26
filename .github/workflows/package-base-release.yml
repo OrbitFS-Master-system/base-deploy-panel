@@ -334,9 +334,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ASSET_ID="$(gh release view "$ARTIFACT_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[0].id // empty' | head -n1)"
-          test -n "$ASSET_ID" || { echo "::error::Dev Panel Base artifact asset was not found"; exit 1; }
-          echo "url=https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" >> "$GITHUB_OUTPUT"
+          ASSET_URL="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$ARTIFACT_TAG" --jq '.assets[0].url // empty' | head -n1)"
+          test -n "$ASSET_URL" || { echo "::error::Dev Panel Base artifact REST asset URL was not found"; exit 1; }
+          [[ "$ASSET_URL" =~ ^https://api\.github\.com/repos/[^/]+/[^/]+/releases/assets/[0-9]+$ ]] || { echo "::error::Dev Panel returned a non-canonical release asset URL: $ASSET_URL"; exit 1; }
+          echo "url=$ASSET_URL" >> "$GITHUB_OUTPUT"
 
       - name: Create Base release in License Manager
         id: master-release
