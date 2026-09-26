@@ -1,0 +1,318 @@
+name: Package OrbitFS Base Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Base release version
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        required: true
+        default: stable
+        type: string
+      source_repo:
+        description: Authoritative Base source repository
+        required: true
+        default: lucaskerim123/V1-vercel-base
+        type: string
+      source_ref:
+        description: Authoritative Base source ref
+        required: true
+        default: base-release
+        type: string
+      source_sha:
+        description: Exact inspected Base source commit
+        required: true
+        type: string
+      notes:
+        description: Release notes supplied by Dev Panel
+        required: false
+        type: string
+      changed_files:
+        description: JSON changed-file list from Dev Panel
+        required: false
+        default: '[]'
+        type: string
+      previous_source_commit:
+        description: Previous approved Base source commit
+        required: false
+        default: ''
+        type: string
+      release_record:
+        description: Structured Stage 1 release record
+        required: false
+        default: '{}'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: orbitfs-dev-panel-base-package
+  cancel-in-progress: false
+
+env:
+  LICENSE_MASTER_URL: ${{ vars.LICENSE_MASTER_URL || 'https://incendiarynetworks.cc/api/v1' }}
+
+jobs:
+  package:
+    outputs:
+      release_id: ${{ steps.master-release.outputs.id }}
+    name: Build Base package and hand off
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Dev Panel worker
+        uses: actions/checkout@v4
+        with:
+          path: worker
+
+      - name: Checkout exact Base source snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          path: base-source
+
+      - name: Verify source identity
+        working-directory: base-source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA" || { echo "::error::Checked out Base SHA $ACTUAL_SHA does not match inspected SHA $EXPECTED_SHA"; exit 1; }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: base-source/package-lock.json
+
+      - name: Install and validate Base source
+        working-directory: base-source
+        run: |
+          npm ci
+          npm run check
+          npm run build
+
+      - name: Build authoritative customer database snapshot
+        working-directory: base-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-package
+          SCHEMA_VERSION="$(sed -n 's/^ORBITFS_SCHEMA_VERSION=//p' .env.example | head -n 1 | tr -d '"'"'"'')"
+          test -f tools/build-customer-schema.mjs || { echo "::error::Base source is missing tools/build-customer-schema.mjs"; exit 1; }
+          node tools/build-customer-schema.mjs \
+            --schema-version "${SCHEMA_VERSION:-1}" \
+            --output supabase/customer-schema.sql \
+            --metadata release-package/database-schema.json
+          test -s supabase/customer-schema.sql || { echo "::error::customer-schema.sql was not generated"; exit 1; }
+
+      - name: Build release information
+        working-directory: base-source
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PREVIOUS_SOURCE_COMMIT: ${{ inputs.previous_source_commit }}
+          CONTROL_RELEASE_RECORD: ${{ inputs.release_record }}
+          CONTROL_NOTES: ${{ inputs.notes }}
+          CONTROL_CHANGED_FILES: ${{ inputs.changed_files }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo "::error::Invalid SemVer: $VERSION"; exit 1; }
+          if [ -n "$CONTROL_NOTES" ]; then
+            printf "%s\n" "$CONTROL_NOTES" > release-package/changelog.md
+          else
+            {
+              echo "# OrbitFS Base Deployment — v$VERSION"
+              echo
+              echo "**Release type:** Base Deployment"
+              echo "**Source:** $SOURCE_REPO@$SOURCE_REF"
+              echo "**Commit:** $SOURCE_SHA"
+            } > release-package/changelog.md
+          fi
+          node - <<'NODE'
+          const fs=require("fs");
+          let control={};
+          try { control=JSON.parse(process.env.CONTROL_RELEASE_RECORD||"{}"); } catch {}
+          const database=JSON.parse(fs.readFileSync("release-package/database-schema.json","utf8"));
+          const info={
+            format:"orbitfs-base-release-v1",
+            databaseSchemaVersion:String(database.schemaVersion||"1"),
+            databaseSchemaSha256:String(database.sha256||""),
+            databaseSchemaPath:String(database.path||"supabase/customer-schema.sql"),
+            databaseMigrationCount:Number(database.migrationCount||0),
+            databaseLatestMigration:String(database.latestMigration||""),
+            releaseType:"base",
+            product:"orbitfs_base",
+            version:process.env.VERSION,
+            channel:process.env.CHANNEL,
+            sourceRepository:process.env.SOURCE_REPO,
+            sourceRef:process.env.SOURCE_REF,
+            sourceCommit:process.env.SOURCE_SHA,
+            previousSourceCommit:process.env.PREVIOUS_SOURCE_COMMIT||null,
+            workflowRepository:process.env.GITHUB_REPOSITORY,
+            workflowRunId:Number(process.env.GITHUB_RUN_ID),
+            changedFileCount:Array.isArray(control.changedFiles)?control.changedFiles.length:0,
+            generatedAt:new Date().toISOString(),
+            controlRecord:control
+          };
+          if(!info.databaseSchemaVersion||!/^[a-f0-9]{64}$/i.test(info.databaseSchemaSha256)||info.databaseSchemaPath!=="supabase/customer-schema.sql"||info.databaseMigrationCount<1||!/^\d{14}$/.test(info.databaseLatestMigration)){
+            throw new Error("Generated customer database snapshot metadata is incomplete");
+          }
+          fs.writeFileSync("release-package/release-info.json",JSON.stringify(info,null,2));
+          NODE
+
+      - name: Build deployable Base artifact
+        id: package
+        working-directory: base-source
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require("fs"),path=require("path"),crypto=require("crypto");
+          const root=process.cwd();
+          const ignored=new Set([".git","node_modules",".next","release-package",".vercel",".env",".env.example"]);
+          const files=[];
+          function walk(dir){
+            for(const e of fs.readdirSync(dir,{withFileTypes:true})){
+              if(ignored.has(e.name))continue;
+              const full=path.join(dir,e.name);
+              if(e.isDirectory())walk(full);
+              else if(e.isFile()){
+                const rel=path.relative(root,full).replaceAll(path.sep,"/");
+                const data=fs.readFileSync(full);
+                files.push({file:rel,encoding:"base64",data:data.toString("base64"),sha256:crypto.createHash("sha256").update(data).digest("hex"),size:data.length});
+              }
+            }
+          }
+          walk(root);
+          files.sort((a,b)=>a.file.localeCompare(b.file));
+          const releaseInfo=JSON.parse(fs.readFileSync("release-package/release-info.json","utf8"));
+          const schemaFile=files.find(x=>x.file==="supabase/customer-schema.sql");
+          if(!schemaFile)throw new Error("Base artifact is missing supabase/customer-schema.sql");
+          if(schemaFile.sha256!==releaseInfo.databaseSchemaSha256)throw new Error("Generated database schema checksum does not match packaged customer-schema.sql");
+          const manifest={
+            schemaVersion:2,
+            format:"orbitfs-base-deployment-v2",
+            databaseSchemaVersion:releaseInfo.databaseSchemaVersion,
+            databaseSchemaSha256:releaseInfo.databaseSchemaSha256,
+            databaseSchemaPath:releaseInfo.databaseSchemaPath,
+            databaseMigrationCount:releaseInfo.databaseMigrationCount,
+            databaseLatestMigration:releaseInfo.databaseLatestMigration,
+            version:process.env.VERSION,
+            sourceCommit:process.env.SOURCE_SHA,
+            fileCount:files.length,
+            title:`OrbitFS Base ${process.env.VERSION}`,
+            description:"Complete deployable OrbitFS Vercel base release",
+            releaseNotes:fs.readFileSync("release-package/changelog.md","utf8"),
+            releaseInfo,
+            components:["base"],
+            projectSettings:{framework:"sveltekit"},
+            files
+          };
+          fs.writeFileSync("release-package/manifest.json",JSON.stringify(manifest));
+          NODE
+          gzip -9 -c release-package/manifest.json > "release-package/orbitfs-base-v${VERSION}.json.gz"
+          echo "file=base-source/release-package/orbitfs-base-v${VERSION}.json.gz" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "release-package/orbitfs-base-v${VERSION}.json.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "artifact_tag=orbitfs-base-v${VERSION}-run-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Store packaged Base artifact in Dev Panel release registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ steps.package.outputs.file }}
+          ARTIFACT_TAG: ${{ steps.package.outputs.artifact_tag }}
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$ARTIFACT_TAG" "$ARTIFACT" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "OrbitFS Base package v$VERSION" \
+            --notes "Packaged by Dev Panel from ${{ inputs.source_repo }}@${SOURCE_SHA}."
+
+      - name: Resolve packaged artifact URL
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_TAG: ${{ steps.package.outputs.artifact_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_ID="$(gh release view "$ARTIFACT_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[0].id // empty' | head -n1)"
+          test -n "$ASSET_ID" || { echo "::error::Dev Panel Base artifact asset was not found"; exit 1; }
+          echo "url=https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Create Base release in License Manager
+        id: master-release
+        working-directory: base-source
+        env:
+          LICENSE_MASTER_API_TOKEN: ${{ secrets.LICENSE_MASTER_API_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          NOTES: ${{ inputs.notes }}
+          CONTROL_CHANGED_FILES: ${{ inputs.changed_files }}
+          CONTROL_RELEASE_RECORD: ${{ inputs.release_record }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.url }}
+          ARTIFACT_TAG: ${{ steps.package.outputs.artifact_tag }}
+          ARTIFACT_SHA256: ${{ steps.package.outputs.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$LICENSE_MASTER_API_TOKEN" || { echo "::error::Missing LICENSE_MASTER_API_TOKEN in Dev Panel repository secrets"; exit 1; }
+          node -e 'const u=new URL(process.env.LICENSE_MASTER_URL); if(u.protocol!=="https:"||u.pathname!=="/api/v1"||u.search||u.hash) throw new Error("LICENSE_MASTER_URL must target /api/v1 over HTTPS");'
+          jq -n \
+            --arg product "orbitfs_base" \
+            --arg release_type "base" \
+            --arg version "$VERSION" \
+            --arg channel "$CHANNEL" \
+            --arg source_repo "$SOURCE_REPO" \
+            --arg source_ref "$SOURCE_REF" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg artifact_repo "$GITHUB_REPOSITORY" \
+            --arg artifact_name "orbitfs-base-v${VERSION}.json.gz" \
+            --arg artifact_url "$ARTIFACT_URL" \
+            --arg artifact_tag "$ARTIFACT_TAG" \
+            --arg checksum "$ARTIFACT_SHA256" \
+            --arg notes "$NOTES" \
+            --argjson artifact_run_id "$GITHUB_RUN_ID" \
+            --argjson release_info "$(cat release-package/release-info.json)" \
+            --argjson changed_files "$(printf '%s' "$CONTROL_CHANGED_FILES" | jq -c '.')" \
+            --argjson release_record "$(printf '%s' "$CONTROL_RELEASE_RECORD" | jq -c '.')" \
+            '{product:$product,release_type:$release_type,version:$version,channel:$channel,source_repo:$source_repo,source_ref:$source_ref,source_sha:$source_sha,artifact_repo:$artifact_repo,artifact_name:$artifact_name,artifact_url:$artifact_url,checksum:$checksum,artifact_run_id:$artifact_run_id,notes:$notes,manifest:{schemaVersion:2,databaseSchemaVersion:$release_info.databaseSchemaVersion,databaseSchemaSha256:$release_info.databaseSchemaSha256,databaseSchemaPath:$release_info.databaseSchemaPath,databaseMigrationCount:$release_info.databaseMigrationCount,databaseLatestMigration:$release_info.databaseLatestMigration,releaseType:"base",product:"orbitfs_base",version:$version,channel:$channel,sourceCommit:$source_sha,artifactTag:$artifact_tag,releaseInfo:$release_info,changedFiles:$changed_files,releaseRecord:$release_record,title:"OrbitFS Base deployment",description:"Complete deployable OrbitFS Vercel base release packaged by Dev Panel"}}' > release-package/license-master-payload.json
+          response="$(curl --fail-with-body --silent --show-error -X POST "${LICENSE_MASTER_URL%/}/releases" -H "Authorization: Bearer $LICENSE_MASTER_API_TOKEN" -H "Content-Type: application/json" --data-binary @release-package/license-master-payload.json)"
+          release_id="$(jq -r '.release.id // empty' <<<"$response")"
+          test -n "$release_id" || { echo "$response"; echo "::error::License Manager did not return a release id"; exit 1; }
+          echo "id=$release_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Base candidate in License Manager
+        env:
+          LICENSE_MASTER_API_TOKEN: ${{ secrets.LICENSE_MASTER_API_TOKEN }}
+          RELEASE_ID: ${{ steps.master-release.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error -X POST "${LICENSE_MASTER_URL%/}/releases/$RELEASE_ID/validate" -H "Authorization: Bearer $LICENSE_MASTER_API_TOKEN")"
+          status="$(jq -r '.validation.status // empty' <<<"$response")"
+          test "$status" = "passed" || { echo "$response"; exit 1; }
+          echo "License Manager validation passed."
