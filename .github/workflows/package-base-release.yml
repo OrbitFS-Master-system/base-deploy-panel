@@ -284,6 +284,19 @@ jobs:
           const schemaFile=files.find(x=>x.file==="supabase/customer-schema.sql");
           if(!schemaFile)throw new Error("Base artifact is missing supabase/customer-schema.sql");
           if(schemaFile.sha256!==releaseInfo.databaseSchemaSha256)throw new Error("Generated database schema checksum does not match packaged customer-schema.sql");
+          const byPath=new Map(files.map(file=>[file.file,file]));
+          for(const required of ["package.json","package-lock.json","svelte.config.js","vite.config.ts","tools/prepare-license-runtime.mjs"]){
+            if(!byPath.has(required))throw new Error("Base artifact is missing required deploy file: "+required);
+          }
+          for(const jsonPath of ["package.json","package-lock.json"]){
+            const decoded=Buffer.from(byPath.get(jsonPath).data,"base64").toString("utf8");
+            try{JSON.parse(decoded)}catch{throw new Error("Base artifact contains invalid JSON in "+jsonPath)}
+          }
+          const packageJson=JSON.parse(Buffer.from(byPath.get("package.json").data,"base64").toString("utf8"));
+          if(packageJson?.scripts?.build!=="node tools/prepare-license-runtime.mjs && vite build")throw new Error("Base artifact production build script is unexpected");
+          if(!packageJson?.dependencies?.["@sveltejs/adapter-vercel"])throw new Error("Base artifact is missing @sveltejs/adapter-vercel");
+          const packageLock=JSON.parse(Buffer.from(byPath.get("package-lock.json").data,"base64").toString("utf8"));
+          if(!Number.isInteger(Number(packageLock?.lockfileVersion))||Number(packageLock.lockfileVersion)<2)throw new Error("Base artifact package-lock.json is not a supported npm lockfile");
           const manifest={
             schemaVersion:2,
             format:"orbitfs-base-deployment-v2",
