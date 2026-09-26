@@ -279,7 +279,7 @@ export const getReleaseLifecycleEvents=createServerFn({method:"POST"}).handler(a
  return {events:events||[]};
 });
 
-export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";from?:string;channel?:string}})=>{
+export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";channel?:string}})=>{
  readSession(data.token);
  const repo=data.type==="base"?BASE_REPO:ENGINE_REPO,ref=data.type==="base"?BASE_REF:ENGINE_REF;
  const releaseType=data.type==="base"?"base":"update";
@@ -297,13 +297,27 @@ export const inspectSource=createServerFn({method:"POST"}).handler(async({data}:
  try {
    const result=await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`);
    baseline=(result?.releases||[])
-     .filter((r:any)=>r.review_status==="approved"&&r.source_sha)
+     .filter((r:any)=>r.review_status==="approved"&&r.status==="published"&&r.source_sha)
      .sort((a:any,b:any)=>new Date(b.published_at||b.created_at||0).getTime()-new Date(a.published_at||a.created_at||0).getTime())[0]||null;
  } catch {}
- const from=data.from||baseline?.source_sha||"";
- if(!from)return {repo,ref,head,baseline:baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha}:null,baseBaseline:baseBaseline?{id:baseBaseline.id,version:baseBaseline.version,sourceSha:baseBaseline.source_sha}:null,files:[],commits:[]};
+
+ const baselineInfo=baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha}:null;
+ const baseBaselineInfo=baseBaseline?{id:baseBaseline.id,version:baseBaseline.version,sourceSha:baseBaseline.source_sha}:null;
+ const from=baseline?.source_sha||"";
+
+ if(!from){
+   const commit=await github(`/repos/${repo}/git/commits/${encodeURIComponent(head)}`);
+   const treeSha=commit?.tree?.sha;
+   const tree=treeSha?await github(`/repos/${repo}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`):null;
+   const files=(tree?.tree||[])
+     .filter((entry:any)=>entry.type==="blob"&&entry.path)
+     .map((entry:any)=>({filename:String(entry.path),status:"snapshot",additions:0,deletions:0,changes:0,size:Number(entry.size||0)}));
+   return {repo,ref,head,baseline:null,baseBaseline:baseBaselineInfo,initialRelease:true,inspectionMode:"full_snapshot",files,commits:[]};
+ }
+
+ if(from===head)return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease:false,inspectionMode:"compare",files:[],commits:[]};
  const cmp=await github(`/repos/${repo}/compare/${encodeURIComponent(from)}...${encodeURIComponent(head)}`);
- return {repo,ref,head,baseline:baseline?{id:baseline.id,version:baseline.version,sourceSha:baseline.source_sha}:null,baseBaseline:baseBaseline?{id:baseBaseline.id,version:baseBaseline.version,sourceSha:baseBaseline.source_sha}:null,files:(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes})),commits:cmp?.commits||[]};
+ return {repo,ref,head,baseline:baselineInfo,baseBaseline:baseBaselineInfo,initialRelease:false,inspectionMode:"compare",files:(cmp?.files||[]).map((f:any)=>({filename:f.filename,status:f.status,additions:f.additions,deletions:f.deletions,changes:f.changes})),commits:cmp?.commits||[]};
 });
 
 export const getReleaseHandoff=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;type:"base"|"engine";version:string;channel:string}})=>{  readSession(data.token);  const product="orbitfs_base";  const releaseType=data.type==="base"?"base":"update";  const channel=normalizeChannel(data.channel);  const result=await licenseMaster(`/releases?product=${product}&channel=${encodeURIComponent(channel)}&type=${releaseType}&include_archived=false`);  const release=(result?.releases||[]).find((r:any)=>String(r.version)===String(data.version)&&!r.archived_at);  return {release:release||null,product,releaseType,channel};});export const getReleaseRun=createServerFn({method:"POST"}).handler(async({data}:{data:{token:string;repo:string;runId?:number}})=>{
@@ -373,7 +387,7 @@ export const startRelease=createServerFn({method:"POST"}).handler(async({data}:{
   ? await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=base&include_archived=false`)
   : await licenseMaster(`/releases?product=orbitfs_base&channel=${encodeURIComponent(channel)}&type=update&include_archived=false`);
  const previousRelease = (previousResult?.releases || [])
-  .filter((r:any) => r.review_status === "approved" && r.source_sha)
+  .filter((r:any) => r.review_status === "approved" && r.status === "published" && r.source_sha)
   .sort((a:any,b:any) => new Date(b.published_at || b.created_at || 0).getTime() - new Date(a.published_at || a.created_at || 0).getTime())[0];
 
  // Stage 1 is authoritative about the source snapshot sent to the worker.
